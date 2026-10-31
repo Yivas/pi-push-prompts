@@ -11,7 +11,7 @@ What the test runs behind [the README](../README.md) actually exercised, and wha
 | TypeScript | 5.9.3 | `devDependencies` |
 | Biome | 2.5.15 | `devDependencies`, lint step of `npm run check` |
 
-The suite holds 246 tests and `npm run check` passes all of them; the runs recorded here used Node.js 24.22.1. The workflow in `.github/workflows/ci.yml` repeats `npm ci --ignore-scripts` and `npm run check` on Node.js 22.19.0 and 24 on every push to `main` and every pull request; Node.js 22 was not part of the local runs recorded here.
+The suite holds 247 tests and `npm run check` passes all of them; the runs recorded here used Node.js 24.22.1. The workflow in `.github/workflows/ci.yml` repeats `npm ci --ignore-scripts` and `npm run check` on Node.js 22.19.0 and 24 on every push to `main` and every pull request; Node.js 22 was not part of the local runs recorded here.
 
 Pi 1.1.0 was the earlier baseline. This page describes the 1.4.0 runs only: the 1.1.0 run was replaced rather than kept, so anything here that the extension promises is evidence for 1.4.0 alone.
 

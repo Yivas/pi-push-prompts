@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file. The format is b
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-01
+
 ### Changed
 
 - The menu entry "Create a profile" asks for a name and, when that name is not already an id, offers the id derived from it (`Pensamiento abstracto` → `pensamiento-abstracto`) instead of failing. The dialog title states the id rule before anything is typed, and the typed name is stored as the profile's `description` in `config.json` only when it is not already the id. A name no id can be derived from reports the rule in one message.

@@ -4,7 +4,7 @@ Adds text from a profile to each new user message in Pi — before it, after it,
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Yivas/pi-push-prompts/blob/main/LICENSE)
 
-Version `0.1.0`, the first public release. MIT licensed, tested against Pi `1.4.0`.
+Version `0.1.1`. MIT licensed, tested against Pi `1.4.0`.
 
 [Install](#install) · [First use](#first-use) · [Commands](#push) · [Compatibility](https://github.com/Yivas/pi-push-prompts/blob/main/docs/compatibility.md) · [Releases](https://github.com/Yivas/pi-push-prompts/releases) · [Contributing](https://github.com/Yivas/pi-push-prompts/blob/main/CONTRIBUTING.md)
 
@@ -12,7 +12,7 @@ Profiles are plain text files. A session selection, a provider/model binding or 
 
 ## Status
 
-- `0.1.0` is the first public release, distributed as the npm package [`pi-push-prompts`](https://www.npmjs.com/package/pi-push-prompts).
+- `0.1.1` is the current release, distributed as the npm package [`pi-push-prompts`](https://www.npmjs.com/package/pi-push-prompts). `0.1.0` was the first public release.
 - Tested against Pi `1.4.0` (`@earendil-works/pi-coding-agent` 1.4.0) with Pi's built-in provider adapters and a simulated outbound transport, so the runs make no network calls. [docs/compatibility.md](https://github.com/Yivas/pi-push-prompts/blob/main/docs/compatibility.md) lists what those runs cover and what they leave out.
 - `0.1.x` is the only release line. Fixes go there; there is no older line to support.
 
@@ -24,7 +24,7 @@ Profiles are plain text files. A session selection, a provider/model binding or 
 ## Install
 
 ```bash
-pi install npm:pi-push-prompts@0.1.0
+pi install npm:pi-push-prompts@0.1.1
 ```
 
 Add `--local` (`-l`) to record the package in `.pi/settings.json` for one project instead of your personal settings; Pi reads that file after you grant the project trust.
@@ -32,7 +32,7 @@ Add `--local` (`-l`) to record the package in `.pi/settings.json` for one projec
 To try it for a single run without changing your settings:
 
 ```bash
-pi -e npm:pi-push-prompts@0.1.0
+pi -e npm:pi-push-prompts@0.1.1
 ```
 
 From a checkout, for development:
