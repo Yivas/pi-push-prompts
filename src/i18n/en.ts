@@ -139,6 +139,10 @@ export const en = {
 		counter: (start: number, end: number, total: number) =>
 			`  ${start}-${end} of ${total}`,
 		hint: "↑↓ navigate · enter select · esc cancel",
+		/** Esc on a section screen returns to the screen that opened it. */
+		hintBack: "↑↓ navigate · enter select · esc back",
+		/** Esc on the title closes the menu. */
+		hintClose: "↑↓ navigate · enter select · esc close",
 		previousPage: "← Previous page",
 		more: "More…",
 	},
@@ -180,7 +184,7 @@ export const en = {
 		createProfileIn: (scope: string) => `Create a profile in ${scope}…`,
 		editProfile: "Edit a profile…",
 		showProfileText: "Show text",
-		editProfilePart: "Edit",
+		editProfilePart: "Edit…",
 		useForSession: "Use for this session",
 		setAsDefaultIn: (scope: string) => `Set as default in ${scope}`,
 		selectionManual: (ref: string) => `manual (${ref})`,

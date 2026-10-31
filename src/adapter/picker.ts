@@ -37,6 +37,8 @@ export interface PickerRequest {
 	title: string;
 	subtitle?: string;
 	items: readonly PickerItem[];
+	/** What Esc does here; the default names a cancel, which a picker always is. */
+	hint?: string;
 }
 
 /**
@@ -168,7 +170,7 @@ export class SearchList {
 			}
 		}
 		lines.push("");
-		lines.push(this.theme.fg("muted", truncate(HINT, width)));
+		lines.push(this.theme.fg("muted", truncate(this.request.hint ?? HINT, width)));
 		return lines;
 	}
 
@@ -190,7 +192,12 @@ export class SearchList {
 			return;
 		}
 		if (this.keybindings.matches(data, "tui.select.confirm") || data === "\n") {
-			this.done(filterItems(this.request.items, this.query)[this.selected]?.value);
+			// An empty list has nothing to confirm: returning keeps the dialog open
+			// instead of reading a stray Enter as "cancel".
+			const chosen = filterItems(this.request.items, this.query)[this.selected];
+			if (chosen !== undefined) {
+				this.done(chosen.value);
+			}
 			return;
 		}
 		if (this.keybindings.matches(data, "tui.select.cancel")) {

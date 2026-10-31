@@ -313,14 +313,12 @@ function listProfileLines(runtime: Runtime, scope: Scope | undefined): string[] 
 
 /**
  * How a profile is named wherever the menu or a picker offers one: its id, the
- * scope it lives in, and its optional description. The scope is part of the
- * label so two profiles with the same id never read the same, and so no
- * profile can read like one of the menu's own rows.
+ * scope it lives in, the mark that says it is the one in force, and its
+ * optional description last, so a clipped label keeps the state it carries.
  */
 function profileRowLabel(entry: ProfileEntry, current: boolean): string {
-	const description = entry.description ? ` — ${entry.description}` : "";
-	const ref = `${entry.ref.id} (${entry.ref.scope})`;
-	return withCurrent(`${ref}${description}`, current);
+	const ref = withCurrent(`${entry.ref.id} (${entry.ref.scope})`, current);
+	return entry.description ? `${ref} — ${entry.description}` : ref;
 }
 
 /** Marks the value, profile or scope a person already has. */
@@ -431,15 +429,17 @@ const UNSET_VALUE_ROW = "use-global-value";
 /**
  * Asks for one row and returns it, so a screen acts on a row it offered instead
  * of on the string the picker handed back. A dismissed picker returns nothing
- * and never runs the first row.
+ * and never runs the first row. `hint` says what Esc does on this screen.
  */
 async function chooseRow(
 	ctx: ExtensionCommandContext,
 	title: string,
 	rows: readonly MenuRow[],
+	hint?: string,
 ): Promise<MenuRow | undefined> {
 	const id = await selectItem(ctx, {
 		title,
+		hint,
 		items: rows.map((row) => ({ value: row.id, label: row.label })),
 	});
 	return rows.find((row) => row.id === id);
@@ -480,7 +480,8 @@ function nextText(runtime: Runtime): string {
 }
 
 function mainTitle(runtime: Runtime): string {
-	const { resolution } = runtime.resolve();
+	// `Active` is the selection the session keeps; an armed profile is `Next`.
+	const { resolution } = runtime.resolve({ ignoreOnce: true });
 	const profile = resolution.profile
 		? shortenRef(formatRef(resolution.profile.ref))
 		: en.menu.none;
@@ -643,7 +644,7 @@ async function mainScreen(
 		{ id: "inspect", label: en.menu.inspectSection },
 		{ id: "help", label: en.menu.help },
 	];
-	const row = await chooseRow(ctx, mainTitle(runtime), rows);
+	const row = await chooseRow(ctx, mainTitle(runtime), rows, en.picker.hintClose);
 	switch (row?.id) {
 		case undefined:
 			return undefined;
@@ -679,7 +680,7 @@ async function profilesScreen(
 		{ id: "edit", label: en.menu.editProfile },
 		{ id: "back", label: en.menu.back },
 	];
-	const row = await chooseRow(ctx, en.menu.title.profiles, rows);
+	const row = await chooseRow(ctx, en.menu.title.profiles, rows, en.picker.hintBack);
 	if (!row || row.id === "back") {
 		return "main";
 	}
@@ -728,6 +729,7 @@ async function profileScreen(
 		ctx,
 		en.menu.title.profile(formatRef(ref)),
 		rows,
+		en.picker.hintBack,
 	);
 	if (!row || row.id === "back") {
 		return "profiles";
@@ -808,7 +810,7 @@ async function bindingsScreen(
 		rows.push({ id: "inherit", label: inheritRowLabel(runtime) });
 	}
 	rows.push({ id: "back", label: en.menu.back });
-	const row = await chooseRow(ctx, en.menu.title.bindings, rows);
+	const row = await chooseRow(ctx, en.menu.title.bindings, rows, en.picker.hintBack);
 	if (!row || row.id === "back") {
 		return "main";
 	}
@@ -1087,7 +1089,7 @@ async function settingsScreen(
 		{ id: "display", label: settingLabel(runtime, scope, "display") },
 		{ id: "back", label: en.menu.back },
 	];
-	const row = await chooseRow(ctx, en.menu.title.settings, rows);
+	const row = await chooseRow(ctx, en.menu.title.settings, rows, en.picker.hintBack);
 	if (!row || row.id === "back") {
 		return "main";
 	}
@@ -1126,7 +1128,7 @@ async function inspectScreen(
 		{ id: "reload", label: en.menu.reload },
 		{ id: "back", label: en.menu.back },
 	];
-	const row = await chooseRow(ctx, en.menu.title.inspect, rows);
+	const row = await chooseRow(ctx, en.menu.title.inspect, rows, en.picker.hintBack);
 	if (!row || row.id === "back") {
 		return "main";
 	}

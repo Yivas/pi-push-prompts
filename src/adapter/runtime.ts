@@ -304,18 +304,27 @@ export class Runtime {
 		return this.context;
 	}
 
-	/** Resolution for the current model, cached until something invalidates it. */
-	resolve(): { resolution: Resolution; identity: ModelIdentity | undefined } {
+	/**
+	 * Resolution for the current model, cached until something invalidates it.
+	 *
+	 * `ignoreOnce` resolves the session selection as if no profile were armed: an
+	 * armed profile is a one-shot state, not the selection the session falls back
+	 * to, and the menu's title shows both apart. Every other caller wants the
+	 * adaptation that is about to happen, so it keeps the default.
+	 */
+	resolve(options: { ignoreOnce?: boolean } = {}): {
+		resolution: Resolution;
+		identity: ModelIdentity | undefined;
+	} {
 		const ctx = this.requireContext();
 		const loaded = this.ensure(ctx);
 		const identity = identityOf(ctx.model);
 		const policy: SubagentPolicy = isSubagentRun()
 			? this.subagentPolicy(loaded)
 			: "inherit";
+		const armed = options.ignoreOnce === true ? undefined : this.once;
 		const base: Selection =
-			this.once !== undefined
-				? { mode: "manual", profile: this.once }
-				: this.selection;
+			armed !== undefined ? { mode: "manual", profile: armed } : this.selection;
 
 		let selection: Selection = base;
 		let bindingsOnly = false;
@@ -330,6 +339,8 @@ export class Runtime {
 		const key = [
 			modelKey(identity),
 			policy,
+			// Two answers for one selection, so the flag is part of the cache key.
+			options.ignoreOnce === true ? "selection-only" : "with-once",
 			selection.mode,
 			selection.mode === "manual" ? (selection.profile ?? "") : "",
 		].join("|");
