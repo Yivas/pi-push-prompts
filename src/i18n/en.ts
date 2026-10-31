@@ -141,7 +141,7 @@ export const en = {
 		createProfile: "Create a profile",
 		/** The dialog title carries the rule: Pi 1.4.0 does not render a placeholder. */
 		createProfileTitle:
-			"Name the new profile; its id keeps letters, digits, dot, dash and underscore (up to 64)",
+			"Name the new profile. Its id allows letters, digits, dot, dash and underscore, starts with a letter or digit, and is at most 64 characters.",
 		createProfilePlaceholder: "for example: code review",
 		editProfile: "Edit a profile",
 		bindings: "Manage model bindings",
@@ -230,11 +230,14 @@ export const en = {
 		suggestIdTitle: "Use a suggested id?",
 		suggestIdBody: (name: string, id: string) =>
 			`"${name}" cannot be used as an id. Use "${id}"?`,
-		keepDescription: (id: string, description: string) =>
-			`"${description}" is stored as the description of ${id}.`,
 		noneInScope: "No profiles found.",
-		created: (ref: string, directory: string) =>
-			`Created ${ref} at ${directory}.`,
+		created: (ref: string, directory: string, description?: string) =>
+			description === undefined
+				? `Created ${ref} at ${directory}.`
+				: `Created ${ref} at ${directory}, with "${description}" as its description.`,
+		/** A new id that differs only in case from a profile that already exists. */
+		caseCollision: (id: string, existing: string, scope: Scope) =>
+			`"${id}" differs only in case from the existing profile ${existing} in ${scopeName(scope)}. Use another id.`,
 		notWritten: (id: string, directory: string) =>
 			`Nothing was written for ${id}. Add --prepend <text> or --append <text> to /push new, or use "Create a profile" in the menu; the files would go in ${directory}.`,
 		exists: (ref: string) => `${ref} already exists. Use /push edit.`,

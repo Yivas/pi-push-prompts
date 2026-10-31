@@ -6,8 +6,9 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Changed
 
-- The menu entry "Create a profile" asks for a name and, when that name is not already an id, offers the id derived from it (`Pensamiento abstracto` → `pensamiento-abstracto`) instead of failing. The dialog title states the id rule before anything is typed, and the typed name is stored as the profile's `description` in `config.json`. A name no id can be derived from reports the rule in one message.
-- `/push new <id>` stays strict: the directory is created with exactly the id given, and an id that breaks the rule is refused with a message that states the rule and names the id the same name would produce.
+- The menu entry "Create a profile" asks for a name and, when that name is not already an id, offers the id derived from it (`Pensamiento abstracto` → `pensamiento-abstracto`) instead of failing. The dialog title states the id rule before anything is typed, and the typed name is stored as the profile's `description` in `config.json` only when it is not already the id. A name no id can be derived from reports the rule in one message.
+- `/push new <id>` stays strict: the directory is created with exactly the id given, and an id that breaks the rule is refused with a message that states the rule and names the id the same name would produce, when one exists.
+- Creating a profile refuses an id that differs only in case from an existing profile in the same scope, in the menu and in `/push new`, because the filesystem may keep one directory for both.
 
 ## [0.1.0] - 2026-10-31
 

@@ -995,6 +995,28 @@ function writeProfilePart(
 	atomicWriteFile(file, content);
 }
 
+/**
+ * The existing id that differs from `ref.id` only in case, if there is one.
+ *
+ * Windows and macOS keep one directory for `Review` and `review`, so a second
+ * profile would land on top of the first while the loader reports two entries.
+ * The catalogue is keyed by the exact directory name, which is why this asks the
+ * filesystem instead of the loaded profiles.
+ */
+function collidingId(runtime: Runtime, ref: ProfileRef): string | undefined {
+	let entries: string[];
+	try {
+		entries = fs.readdirSync(path.join(rootOf(runtime, ref.scope), "profiles"));
+	} catch {
+		// No `profiles/` directory yet: nothing can collide.
+		return undefined;
+	}
+	const wanted = ref.id.toLowerCase();
+	return entries.find(
+		(entry) => entry !== ref.id && entry.toLowerCase() === wanted,
+	);
+}
+
 function handleNew(
 	runtime: Runtime,
 	ctx: ExtensionCommandContext,
@@ -1023,6 +1045,11 @@ function handleNew(
 	const ref: ProfileRef = { scope, id };
 	if (runtime.hasProfile(ref)) {
 		notify(ctx, en.profiles.exists(formatRef(ref)), "warning");
+		return;
+	}
+	const collision = collidingId(runtime, ref);
+	if (collision !== undefined) {
+		notify(ctx, en.profiles.caseCollision(id, collision, scope), "error");
 		return;
 	}
 	const prepend = flagString(args.flags, "prepend");
@@ -1132,6 +1159,11 @@ async function createProfileInteractive(
 		notify(ctx, en.profiles.exists(formatRef(ref)), "warning");
 		return;
 	}
+	const collision = collidingId(runtime, ref);
+	if (collision !== undefined) {
+		notify(ctx, en.profiles.caseCollision(id, collision, scope), "error");
+		return;
+	}
 	const prepend = await ctx.ui.editor(
 		`${en.menu.editPartPrepend} — ${formatRef(ref)}`,
 		"",
@@ -1160,15 +1192,17 @@ async function createProfileInteractive(
 		parts.push(["append", append]);
 	}
 	try {
-		// The description goes first: a description whose profile has no files yet
-		// is ignored by the loader, while files written before a failed description
-		// would look complete and silently lose the name.
-		if (description !== undefined) {
-			writeProfileDescription(runtime, ctx, ref, description);
-		}
-		// Same rule as the flag path: check both editors' text, then write.
+		// Same rule as the flag path: both editors' text is checked before anything
+		// is written, the description included, so an oversized part leaves no
+		// config.json entry behind either.
 		for (const [part, text] of parts) {
 			assertProfilePartFits(ref, part, text);
+		}
+		if (description !== undefined) {
+			// The description goes before the files: a description whose profile has
+			// no files yet is ignored by the loader, while files written before a
+			// failed description would look complete and silently lose the name.
+			writeProfileDescription(runtime, ctx, ref, description);
 		}
 		for (const [part, text] of parts) {
 			writeProfilePart(runtime, ref, part, text);
@@ -1178,10 +1212,10 @@ async function createProfileInteractive(
 		return;
 	}
 	reloadAfterWrite(runtime, ctx, undefined);
-	notify(ctx, en.profiles.created(formatRef(ref), profileDir(runtime, ref)));
-	if (description !== undefined) {
-		notify(ctx, en.profiles.keepDescription(formatRef(ref), description));
-	}
+	notify(
+		ctx,
+		en.profiles.created(formatRef(ref), profileDir(runtime, ref), description),
+	);
 }
 
 async function editProfileInteractive(
