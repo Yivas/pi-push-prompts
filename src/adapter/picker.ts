@@ -79,28 +79,26 @@ function truncate(text: string, width: number): string {
 }
 
 export class SearchList {
+	/**
+	 * What this dialog offers. It is public so a host or a test can read the
+	 * title and the rows without painting the component.
+	 */
+	readonly request: PickerRequest;
 	private query = "";
 	private selected = 0;
-	private readonly title: string;
-	private readonly subtitle: string | undefined;
-	private readonly items: readonly PickerItem[];
 	private readonly theme: Theme;
 	private readonly keybindings: KeybindingsManager;
 	private readonly done: (value: string | undefined) => void;
 	private readonly maxVisible: number;
 
 	constructor(
-		title: string,
-		subtitle: string | undefined,
-		items: readonly PickerItem[],
+		request: PickerRequest,
 		theme: Theme,
 		keybindings: KeybindingsManager,
 		done: (value: string | undefined) => void,
 		maxVisible: number = MAX_VISIBLE,
 	) {
-		this.title = title;
-		this.subtitle = subtitle;
-		this.items = items;
+		this.request = request;
 		this.theme = theme;
 		this.keybindings = keybindings;
 		this.done = done;
@@ -110,12 +108,13 @@ export class SearchList {
 	invalidate(): void {}
 
 	render(width: number): string[] {
-		const filtered = filterItems(this.items, this.query);
+		const { title, subtitle, items } = this.request;
+		const filtered = filterItems(items, this.query);
 		const lines: string[] = [
-			this.theme.fg("accent", this.theme.bold(truncate(this.title, width))),
+			this.theme.fg("accent", this.theme.bold(truncate(title, width))),
 		];
-		if (this.subtitle) {
-			lines.push(this.theme.fg("muted", truncate(this.subtitle, width)));
+		if (subtitle) {
+			lines.push(this.theme.fg("muted", truncate(subtitle, width)));
 		}
 		const prefix = truncate(en.picker.search, width);
 		const searchText = this.query === "" ? en.picker.searchHint : this.query;
@@ -181,7 +180,7 @@ export class SearchList {
 			return;
 		}
 		if (this.keybindings.matches(data, "tui.select.confirm") || data === "\n") {
-			this.done(filterItems(this.items, this.query)[this.selected]?.value);
+			this.done(filterItems(this.request.items, this.query)[this.selected]?.value);
 			return;
 		}
 		if (this.keybindings.matches(data, "tui.select.cancel")) {
@@ -202,7 +201,7 @@ export class SearchList {
 	}
 
 	private move(delta: number): void {
-		const total = filterItems(this.items, this.query).length;
+		const total = filterItems(this.request.items, this.query).length;
 		if (total === 0) {
 			return;
 		}
@@ -220,13 +219,10 @@ export async function selectItem(
 	request: PickerRequest,
 ): Promise<string | undefined> {
 	if (ctx.mode === "tui") {
-		const { title, subtitle, items } = request;
 		return ctx.ui.custom<string | undefined>(
 			(tui, theme, keybindings, done) =>
 				new SearchList(
-					title,
-					subtitle,
-					items,
+					request,
 					theme,
 					keybindings,
 					done,

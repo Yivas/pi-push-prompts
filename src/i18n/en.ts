@@ -28,6 +28,11 @@ function scopeWord(scope: Scope): string {
 	return scope === "project" ? "the project scope" : "the global scope";
 }
 
+/** Short scope name, for a menu row whose value is a scope. */
+function menuScopeName(scope: Scope): string {
+	return scope === "project" ? "Project" : "Global";
+}
+
 /**
  * The id rule in the words a person reads. Ids become directory names, so the
  * rule is not cosmetic; it is written once here so every message states it the
@@ -138,47 +143,90 @@ export const en = {
 		more: "More…",
 	},
 	menu: {
-		title: "Push Prompts",
-		chooseProfile: "Choose a profile for this session",
-		armOnce: "Use a profile for the next message only",
-		cancelOnce: "Cancel the profile armed for the next message",
-		listProfiles: "List profiles",
-		createProfile: "Create a profile",
+		/** Main title: what applies now, and what is armed for the next message. */
+		title: {
+			main: (active: string, next: string) =>
+				`Push · Active: ${active} · Next: ${next}`,
+			active: (profile: string, origin: string) => `${profile} (${origin})`,
+			profiles: "Push · Profiles",
+			profile: (ref: string) => `Push · ${ref}`,
+			bindings: "Push · Model bindings",
+			settings: "Push · Settings",
+			inspect: "Push · Check and inspect",
+		},
+		/** Why the profile named in the title applies. */
+		origin: {
+			session: "session",
+			auto: "auto",
+			default: "default",
+		},
+		none: "none",
+		off: "off",
+		/** Marks the value, profile or scope already in force. */
+		current: " (current)",
+		useSession: "Use a profile for this session…",
+		nextMessage: (profile: string) => `Next message: ${profile}…`,
+		profilesSection: "Profiles…",
+		bindingsSection: "Model bindings…",
+		settingsSection: "Settings…",
+		inspectSection: "Check and inspect…",
+		help: "Help",
+		back: "Back",
+		browseProfiles: "Browse profiles…",
 		/** The dialog title carries the rule: Pi 1.4.0 does not render a placeholder. */
 		createProfileTitle:
 			"Name the new profile. Its id allows letters, digits, dot, dash and underscore, starts with a letter or digit, and is at most 64 characters.",
 		createProfilePlaceholder: "for example: code review",
-		editProfile: "Edit a profile",
-		bindings: "Manage model bindings",
-		defaultProfile: "Set the default profile",
-		showAddedText: "Show added text",
-		status: "Show status",
-		why: "Explain the current resolution",
-		preview: "Preview the text that would be added",
-		showLast: "Show the last added text",
+		createProfile: "Create a profile…",
+		editProfile: "Edit a profile…",
+		showProfileText: "Show text",
+		editProfilePart: "Edit",
+		useForSession: "Use for this session",
+		setAsDefault: "Set as default",
+		profilePickerTitle: "Which profile?",
+		sessionProfileTitle: "Which profile for this session?",
+		nextMessageTitle: "Which profile for the next message?",
+		automatic: "Automatic (follow model bindings)",
+		offOption: "Off for this session",
+		cancelNext: "Cancel: add nothing to the next message",
+		bindCurrent: (model: string) => `Bind ${model} to a profile…`,
+		bindProfile: "Bind a profile to a model…",
+		removeBinding: "Remove a binding…",
+		listBindings: "Show all bindings",
+		/** The row that picks the config every write from the menu goes to. */
+		scopeRow: (name: string) => `Save changes to: ${name}…`,
+		scopeName: menuScopeName,
+		scopeStored: (scope: Scope) =>
+			`The menu now writes to ${menuScopeName(scope)}.`,
+		scopeTitle: "Which configuration?",
+		settingNames: {
+			selection: "Selection",
+			defaultProfile: "Default profile",
+			subagents: "Subagents",
+			display: "Added text",
+			inheritGlobalBindings: "Inherit global bindings",
+		} satisfies Record<SettingKey, string>,
+		settingRow: (name: string, value: string, inherited = false) =>
+			`${name}: ${value}${inherited ? " (from global)" : ""}`,
+		settingValueTitle: (name: string, scope: Scope) =>
+			`${name} in ${scopeName(scope)}`,
+		settingValue: (key: SettingKey, value: string) =>
+			key === "inheritGlobalBindings" ? (value === "true" ? "yes" : "no") : value,
+		useGlobalValue: (value: string) => `Use global value (${value})`,
+		noDefault: "None (no default profile)",
+		status: "Status",
+		why: "Why this profile?",
+		preview: "Preview next message",
+		showLast: "Last added text",
 		config: "Show configuration",
-		changeSetting: "Change a setting",
-		validate: "Check the configuration",
+		validate: "Check configuration",
 		reload: "Reload from disk",
-		turnOff: "Turn off for this session",
-		help: "Help",
-		back: "Back to the menu",
-		armOnceTitle: "Which profile for the next message?",
-		chooseProfileTitle: "Which profile for this session?",
 		editProfileTitle: "Which profile do you want to edit?",
 		editPartTitle: "Which part of the profile?",
 		editPartPrepend: "Before the message (prepend.md)",
 		editPartAppend: "After the message (append.md)",
 		defaultProfileTitle: "Which profile is the default?",
-		displayTitle: "Show the added text in the transcript?",
-		displayScopeTitle: "Where should the setting be stored?",
-		displayHidden: "Hidden (only the original text is drawn)",
-		displayAdded: "Added (draw a row with the added text)",
 		bindProfileTitle: "Which profile do you want to bind?",
-		bindingsTitle: "Model bindings",
-		bindingsAdd: "Add a binding to a model",
-		bindingsList: "List bindings",
-		bindingsRemove: "Remove a binding",
 		bindProviderTitle: (profile: string) =>
 			`Bind ${profile}: which provider?`,
 		bindModelTitle: (provider: string) => `Bind: which model of ${provider}?`,
@@ -187,20 +235,8 @@ export const en = {
 		bindAnyModel: "(any model)",
 		bindAnyModelOf: (provider: string) => `(any model of ${provider})`,
 		removeBindingTitle: "Which binding do you want to remove?",
-		scopeTitle: "Which configuration?",
-		settingScopeTitle: "Which configuration holds the setting?",
-		settingTitle: (scope: Scope) => `Setting in ${scopeName(scope)}`,
-		settingValueTitle: (key: string, scope: Scope) =>
-			`${key} in ${scopeName(scope)}`,
 	},
 	settings: {
-		describe: {
-			selection: "Baseline selection stored in the config.",
-			display: "Whether the transcript shows the added text.",
-			subagents: "Whether the profile applies inside a subagent.",
-			inheritGlobalBindings: "Project-only. false ignores global bindings.",
-			defaultProfile: "Profile used in auto mode when no binding matches.",
-		} satisfies Record<SettingKey, string>,
 		unknownKey: (input: string, known: string) =>
 			`Unknown setting "${input}". Known: ${known}.`,
 		needsOwnCommand: (key: string) =>
@@ -224,6 +260,9 @@ export const en = {
 	profiles: {
 		none: "No profiles found. Create one first.",
 		notFound: (ref: string) => `Profile ${ref} was not found.`,
+		/** What "Show text" prints: both files as they are stored. */
+		textTitle: (ref: string) => `Text of ${ref}:`,
+		textPart: (file: string, bytes: number) => `${file} (${bytes} bytes):`,
 		invalidId: (id: string) => `"${id}" is not a valid profile id.`,
 		invalidNewId: (id: string, suggestion: string) =>
 			`"${id}" is not a valid profile id. ${ID_RULE}${
@@ -363,6 +402,8 @@ export const en = {
 		unbindUsage: "Usage: /push unbind <id> [--scope global|project]",
 		missingFlags:
 			"Pass --provider and/or --model, or run the command in the interactive UI.",
+		noCurrentModel:
+			"No model is selected yet, so there is no model to bind.",
 		noModels: "No models are available to bind.",
 		invalidId: (id: string) => `Binding id "${id}" is not a valid id; pass --id.`,
 		added: (ref: string, target: string, priority: number, scope: Scope) =>

@@ -7,6 +7,8 @@
  *   of system prompt text, and nothing here touches the system prompt;
  * - `once` arms a profile for the next finalized message, `show` reads back a
  *   send, and `display` only changes what the transcript paints;
+ * - the menu is sectioned, and every row carries an id, so a profile named
+ *   `Off` or `Back` can never be taken for a row of the menu;
  * - every sentence a person reads lives in `src/i18n/en.ts`.
  *
  * Nothing in this file may alter a serialized request. Commands read the loaded
@@ -40,9 +42,11 @@ import { formatRef, parseRef, resolveRef } from "../core/refs.ts";
 import { isProjectActive } from "../core/resolve.ts";
 import {
 	applySetting,
+	defaultSetting,
 	effectiveSetting,
 	isProjectOnly,
 	parseSetting,
+	readSettingValue,
 	type SettingKey,
 	type SettingProblem,
 	type SettingSpec,
@@ -61,6 +65,7 @@ import {
 	type Diagnostic,
 	type ModelIdentity,
 	type ProfileRef,
+	type Resolution,
 	type Scope,
 	type Selection,
 } from "../core/types.ts";
@@ -196,11 +201,10 @@ function selectionText(selection: Selection): string {
 		: selection.mode;
 }
 
-/** One profile as the lists show it: reference, directory, description. */
+/** One profile as the menu and the lists offer it. */
 interface ProfileEntry {
 	ref: ProfileRef;
-	label: string;
-	part: ProfilePart;
+	description?: string;
 }
 
 function partWithText(prepend: string, append: string): ProfilePart {
@@ -217,13 +221,11 @@ function profileEntries(runtime: Runtime): ProfileEntry[] {
 		: ["global"];
 	for (const scope of scopes) {
 		for (const profile of runtime.catalog(scope).profiles.values()) {
-			const ref: ProfileRef = { scope, id: profile.id };
-			const suffix = profile.description ? ` · ${profile.description}` : "";
-			entries.push({
-				ref,
-				label: `${formatRef(ref)} — ${profile.path}${suffix}`,
-				part: partWithText(profile.prepend, profile.append),
-			});
+			const entry: ProfileEntry = { ref: { scope, id: profile.id } };
+			if (profile.description !== undefined) {
+				entry.description = profile.description;
+			}
+			entries.push(entry);
 		}
 	}
 	return entries;
@@ -309,46 +311,21 @@ function listProfileLines(runtime: Runtime, scope: Scope | undefined): string[] 
 	return lines;
 }
 
-async function chooseProfileInteractive(
-	runtime: Runtime,
-	ctx: ExtensionCommandContext,
-	title: string,
-): Promise<void> {
-	const entries = profileEntries(runtime);
-	if (entries.length === 0) {
-		notify(ctx, en.profiles.none, "warning");
-		return;
-	}
-	const choice = await selectItem(ctx, {
-		title,
-		items: [
-			{ value: "__auto__", label: en.selection.auto },
-			...entries.map((entry) => ({
-				value: formatRef(entry.ref),
-				label: entry.label,
-			})),
-			{ value: "__off__", label: en.selection.off },
-		],
-	});
-	if (choice === undefined) {
-		return;
-	}
-	if (choice === "__auto__") {
-		runtime.setSelection({ mode: "auto" });
-		notify(ctx, en.selection.auto);
-		return;
-	}
-	if (choice === "__off__") {
-		runtime.setSelection({ mode: "off" });
-		notify(ctx, en.selection.off);
-		return;
-	}
-	const ref = parseRef(choice);
-	if (!ref) {
-		return;
-	}
-	runtime.setSelection({ mode: "manual", profile: formatRef(ref) });
-	notify(ctx, en.selection.manual(formatRef(ref)));
+/**
+ * How a profile is named wherever the menu or a picker offers one: its id, the
+ * scope it lives in, and its optional description. The scope is part of the
+ * label so two profiles with the same id never read the same, and so no
+ * profile can read like one of the menu's own rows.
+ */
+function profileRowLabel(entry: ProfileEntry, current: boolean): string {
+	const description = entry.description ? ` — ${entry.description}` : "";
+	const ref = `${entry.ref.id} (${entry.ref.scope})`;
+	return withCurrent(`${ref}${description}`, current);
+}
+
+/** Marks the value, profile or scope a person already has. */
+function withCurrent(label: string, current: boolean): string {
+	return current ? `${label}${en.menu.current}` : label;
 }
 
 async function pickProfileRef(
@@ -365,7 +342,7 @@ async function pickProfileRef(
 		title,
 		items: entries.map((entry) => ({
 			value: formatRef(entry.ref),
-			label: entry.label,
+			label: profileRowLabel(entry, false),
 		})),
 	});
 	return entries.find((entry) => formatRef(entry.ref) === choice);
@@ -425,49 +402,721 @@ function reportSettingProblem(
 	notify(ctx, describeProblem(problem), "error");
 }
 
-async function changeSettingInteractive(
-	runtime: Runtime,
+/**
+ * The interactive menu: one screen at a time, each one a function that offers
+ * its rows and says which screen follows.
+ *
+ * Three rules shape it. State lives in the title, never as a fake first row.
+ * Every row carries an id and the answer is resolved against the rows that were
+ * offered, so a profile named `Off` or `Back` stays a profile: a profile id is
+ * a reference with a colon in it and no menu id has one. And the scope is
+ * chosen once, in Settings, and remembered for the session, so every write the
+ * menu makes lands in the same `config.json`.
+ */
+
+type MenuScreen =
+	| "main"
+	| "profiles"
+	| "profile"
+	| "bindings"
+	| "settings"
+	| "inspect";
+
+/** One row of a screen: what the picker returns, and the only text people read. */
+interface MenuRow {
+	id: string;
+	label: string;
+}
+
+/** What the open menu remembers between screens. */
+interface MenuState {
+	/** Scope of every write; filled in the first time a screen needs it. */
+	scope?: Scope;
+	/** Profile the browse screen is acting on. */
+	profile?: ProfileRef;
+}
+
+/** Longest profile reference the title keeps: the state around it needs the room. */
+const TITLE_PROFILE_LIMIT = 16;
+
+/** The row that removes a project override instead of storing another value. */
+const UNSET_VALUE_ROW = "use-global-value";
+
+/**
+ * Asks for one row and returns it, so a screen acts on a row it offered instead
+ * of on the string the picker handed back. A dismissed picker returns nothing
+ * and never runs the first row.
+ */
+async function chooseRow(
 	ctx: ExtensionCommandContext,
-): Promise<void> {
-	const scope = await chooseScopeInteractive(
-		ctx,
-		en.menu.settingScopeTitle,
-	);
-	if (!scope) {
-		return;
+	title: string,
+	rows: readonly MenuRow[],
+): Promise<MenuRow | undefined> {
+	const id = await selectItem(ctx, {
+		title,
+		items: rows.map((row) => ({ value: row.id, label: row.label })),
+	});
+	return rows.find((row) => row.id === id);
+}
+
+function titleRef(value: string): string {
+	return value.length <= TITLE_PROFILE_LIMIT
+		? value
+		: `${value.slice(0, TITLE_PROFILE_LIMIT - 1)}…`;
+}
+
+/** The profile that applies now, plus the word that says why it applies. */
+function activeText(resolution: Resolution): string {
+	if (resolution.mode === "off") {
+		return en.menu.off;
 	}
-	const items: PickerItem[] = [];
-	for (const key of settingKeys()) {
-		const spec = settingSpec(key);
-		if (!spec?.settable || isProjectOnly(spec, scope)) {
-			continue;
-		}
-		const effective = effectiveSettingFor(runtime, key);
-		items.push({
-			value: key,
-			label: `${key} — ${en.settings.describe[key]} (now: ${JSON.stringify(effective.value)} from ${effective.origin})`,
+	if (!resolution.profile) {
+		return en.menu.none;
+	}
+	const profile = titleRef(formatRef(resolution.profile.ref));
+	if (resolution.mode === "manual") {
+		return en.menu.title.active(profile, en.menu.origin.session);
+	}
+	return en.menu.title.active(
+		profile,
+		resolution.binding ? en.menu.origin.auto : en.menu.origin.default,
+	);
+}
+
+function nextText(runtime: Runtime): string {
+	const { once } = runtime.getStatus();
+	return once === undefined ? en.menu.none : titleRef(once);
+}
+
+function mainTitle(runtime: Runtime): string {
+	return en.menu.title.main(activeText(runtime.resolve().resolution), nextText(runtime));
+}
+
+/** Project when its config can be read, Global otherwise. */
+function menuScope(ctx: ExtensionCommandContext, state: MenuState): Scope {
+	if (state.scope === undefined) {
+		state.scope = ctx.isProjectTrusted() ? "project" : "global";
+	}
+	return state.scope;
+}
+
+async function chooseMenuScope(
+	ctx: ExtensionCommandContext,
+	state: MenuState,
+): Promise<void> {
+	const current = menuScope(ctx, state);
+	const rows: MenuRow[] = [
+		{
+			id: "global",
+			label: withCurrent(en.args.scope("global"), current === "global"),
+		},
+	];
+	if (ctx.isProjectTrusted()) {
+		rows.push({
+			id: "project",
+			label: withCurrent(en.args.scope("project"), current === "project"),
 		});
 	}
-	const key = await selectItem(ctx, {
-		title: en.menu.settingTitle(scope),
-		items,
+	const row = await chooseRow(ctx, en.menu.scopeTitle, rows);
+	if (!row) {
+		return;
+	}
+	state.scope = row.id === "project" ? "project" : "global";
+	notify(ctx, en.menu.scopeStored(state.scope));
+}
+
+/** Both parts of one profile as they are stored, for the browse screen. */
+function profileText(runtime: Runtime, ref: ProfileRef): string {
+	const profile = profileOf(runtime, ref);
+	if (!profile) {
+		return en.profiles.notFound(formatRef(ref));
+	}
+	const lines = [en.profiles.textTitle(formatRef(ref))];
+	const parts: Array<[string, string]> = [
+		[PREPEND_FILE, profile.prepend],
+		[APPEND_FILE, profile.append],
+	];
+	for (const [file, text] of parts) {
+		lines.push(en.profiles.textPart(file, Buffer.byteLength(text, "utf8")));
+		if (normalizeProfileText(text) === "") {
+			lines.push(en.preview.empty);
+			continue;
+		}
+		lines.push(text.slice(0, PREVIEW_LIMIT));
+		if (text.length > PREVIEW_LIMIT) {
+			lines.push(en.preview.truncated(text.length - PREVIEW_LIMIT));
+		}
+	}
+	return lines.join("\n");
+}
+
+/**
+ * The session profile picker. It reports whether the selection changed, because
+ * only a change closes the menu.
+ */
+async function chooseSessionProfile(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+): Promise<boolean> {
+	const { selection } = runtime.getStatus();
+	const rows: MenuRow[] = profileEntries(runtime).map((entry) => ({
+		id: formatRef(entry.ref),
+		label: profileRowLabel(
+			entry,
+			selection.mode === "manual" &&
+				selection.profile === formatRef(entry.ref),
+		),
+	}));
+	rows.push({
+		id: "automatic",
+		label: withCurrent(en.menu.automatic, selection.mode === "auto"),
 	});
-	if (!key) {
-		return;
-	}
-	const spec = settingSpec(key);
-	if (!spec) {
-		return;
-	}
-	const values = spec.values ?? ["true", "false"];
-	const value = await selectItem(ctx, {
-		title: en.menu.settingValueTitle(spec.key, scope),
-		items: values.map((entry) => ({ value: entry, label: entry })),
+	rows.push({
+		id: "off",
+		label: withCurrent(en.menu.offOption, selection.mode === "off"),
 	});
-	if (value === undefined) {
+	const row = await chooseRow(ctx, en.menu.sessionProfileTitle, rows);
+	if (!row) {
+		return false;
+	}
+	if (row.id === "automatic") {
+		runtime.setSelection({ mode: "auto" });
+		notify(ctx, en.selection.auto);
+		return true;
+	}
+	if (row.id === "off") {
+		runtime.setSelection({ mode: "off" });
+		notify(ctx, en.selection.off);
+		return true;
+	}
+	const ref = parseRef(row.id);
+	if (!ref) {
+		return false;
+	}
+	runtime.setSelection({ mode: "manual", profile: formatRef(ref) });
+	notify(ctx, en.selection.manual(formatRef(ref)));
+	return true;
+}
+
+/** The next-message picker; the cancel row exists only while a profile is armed. */
+async function chooseNextProfile(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+): Promise<boolean> {
+	const entries = profileEntries(runtime);
+	if (entries.length === 0) {
+		notify(ctx, en.profiles.none, "warning");
+		return false;
+	}
+	const { once } = runtime.getStatus();
+	const rows: MenuRow[] = entries.map((entry) => ({
+		id: formatRef(entry.ref),
+		label: profileRowLabel(entry, once === formatRef(entry.ref)),
+	}));
+	if (once !== undefined) {
+		rows.unshift({ id: "cancel-next", label: en.menu.cancelNext });
+	}
+	const row = await chooseRow(ctx, en.menu.nextMessageTitle, rows);
+	if (!row) {
+		return false;
+	}
+	if (row.id === "cancel-next") {
+		cancelOnce(runtime, ctx);
+		return true;
+	}
+	const ref = parseRef(row.id);
+	if (!ref) {
+		return false;
+	}
+	armOnce(runtime, ctx, formatRef(ref));
+	return true;
+}
+
+async function mainScreen(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+): Promise<MenuScreen | undefined> {
+	const rows: MenuRow[] = [
+		{ id: "use-session", label: en.menu.useSession },
+		{ id: "next-message", label: en.menu.nextMessage(nextText(runtime)) },
+		{ id: "profiles", label: en.menu.profilesSection },
+		{ id: "bindings", label: en.menu.bindingsSection },
+		{ id: "settings", label: en.menu.settingsSection },
+		{ id: "inspect", label: en.menu.inspectSection },
+		{ id: "help", label: en.menu.help },
+	];
+	const row = await chooseRow(ctx, mainTitle(runtime), rows);
+	switch (row?.id) {
+		case undefined:
+			return undefined;
+		case "use-session":
+			return (await chooseSessionProfile(runtime, ctx)) ? undefined : "main";
+		case "next-message":
+			return (await chooseNextProfile(runtime, ctx)) ? undefined : "main";
+		case "profiles":
+			return "profiles";
+		case "bindings":
+			return "bindings";
+		case "settings":
+			return "settings";
+		case "inspect":
+			return "inspect";
+		case "help":
+			notify(ctx, en.help.join("\n"));
+			return "main";
+		default:
+			return "main";
+	}
+}
+
+async function profilesScreen(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	state: MenuState,
+): Promise<MenuScreen | undefined> {
+	const rows: MenuRow[] = [
+		{ id: "browse", label: en.menu.browseProfiles },
+		{ id: "create", label: en.menu.createProfile },
+		{ id: "edit", label: en.menu.editProfile },
+		{ id: "back", label: en.menu.back },
+	];
+	const row = await chooseRow(ctx, en.menu.title.profiles, rows);
+	if (!row || row.id === "back") {
+		return "main";
+	}
+	if (row.id === "browse") {
+		const entry = await pickProfileRef(runtime, ctx, en.menu.profilePickerTitle);
+		if (!entry) {
+			return "profiles";
+		}
+		state.profile = entry.ref;
+		return "profile";
+	}
+	if (row.id === "create") {
+		await createProfileInteractive(runtime, ctx);
+		return "profiles";
+	}
+	if (row.id === "edit") {
+		const entry = await pickProfileRef(runtime, ctx, en.menu.editProfileTitle);
+		if (entry) {
+			await editProfileInteractive(runtime, ctx, entry.ref);
+		}
+	}
+	return "profiles";
+}
+
+async function profileScreen(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	state: MenuState,
+): Promise<MenuScreen | undefined> {
+	const ref = state.profile;
+	if (!ref) {
+		return "profiles";
+	}
+	const rows: MenuRow[] = [
+		{ id: "show-text", label: en.menu.showProfileText },
+		{ id: "edit", label: en.menu.editProfilePart },
+		{ id: "use-session", label: en.menu.useForSession },
+		{ id: "set-default", label: en.menu.setAsDefault },
+		{ id: "back", label: en.menu.back },
+	];
+	const row = await chooseRow(
+		ctx,
+		en.menu.title.profile(formatRef(ref)),
+		rows,
+	);
+	if (!row || row.id === "back") {
+		return "profiles";
+	}
+	if (row.id === "show-text") {
+		notify(ctx, profileText(runtime, ref));
+		return "profile";
+	}
+	if (row.id === "edit") {
+		await editProfileInteractive(runtime, ctx, ref);
+		return "profile";
+	}
+	if (row.id === "use-session") {
+		runtime.setSelection({ mode: "manual", profile: formatRef(ref) });
+		notify(ctx, en.selection.manual(formatRef(ref)));
+		return undefined;
+	}
+	if (row.id === "set-default") {
+		writeDefaultProfile(runtime, ctx, ref, menuScope(ctx, state));
+	}
+	return "profile";
+}
+
+/** Binds the model this session uses to a profile, in the menu's scope. */
+async function bindCurrentModel(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	scope: Scope,
+): Promise<void> {
+	const active = ctx.model;
+	if (!active) {
+		notify(ctx, en.bindings.noCurrentModel, "warning");
 		return;
 	}
-	setConfigSetting(runtime, ctx, key, value, scope);
+	const entry = await pickProfileRef(runtime, ctx, en.menu.bindProfileTitle);
+	if (!entry) {
+		return;
+	}
+	await handleBind(runtime, ctx, {
+		positional: [formatRef(entry.ref)],
+		flags: {
+			provider: String(active.provider),
+			model: String(active.id),
+			scope,
+		},
+	});
+}
+
+function inheritRowLabel(runtime: Runtime): string {
+	const value = runtime.configOf("project").config?.inheritGlobalBindings ?? true;
+	return en.menu.settingRow(
+		en.menu.settingNames.inheritGlobalBindings,
+		en.menu.settingValue("inheritGlobalBindings", String(value)),
+	);
+}
+
+async function bindingsScreen(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	state: MenuState,
+): Promise<MenuScreen | undefined> {
+	const scope = menuScope(ctx, state);
+	const model = ctx.model
+		? `${String(ctx.model.provider)}/${String(ctx.model.id)}`
+		: undefined;
+	const rows: MenuRow[] = [
+		{
+			id: "bind",
+			label:
+				model === undefined
+					? en.menu.bindProfile
+					: en.menu.bindCurrent(model),
+		},
+		{ id: "remove", label: en.menu.removeBinding },
+		{ id: "list", label: en.menu.listBindings },
+	];
+	if (scope === "project") {
+		rows.push({ id: "inherit", label: inheritRowLabel(runtime) });
+	}
+	rows.push({ id: "back", label: en.menu.back });
+	const row = await chooseRow(ctx, en.menu.title.bindings, rows);
+	if (!row || row.id === "back") {
+		return "main";
+	}
+	if (row.id === "bind") {
+		await bindCurrentModel(runtime, ctx, scope);
+		return "bindings";
+	}
+	if (row.id === "remove") {
+		await removeBindingInteractive(runtime, ctx);
+		return "bindings";
+	}
+	if (row.id === "list") {
+		const lines = bindingList(runtime);
+		notify(ctx, lines.length > 0 ? lines.join("\n") : en.bindings.none);
+		return "bindings";
+	}
+	if (row.id === "inherit") {
+		await editSetting(runtime, ctx, "project", "inheritGlobalBindings");
+	}
+	return "bindings";
+}
+
+interface ScopedSetting {
+	/** Value in force for the chosen scope. */
+	value: string | boolean | undefined;
+	/** The chosen scope stores its own value. */
+	own: boolean;
+	/** Nothing is stored in the chosen scope; the global config supplies it. */
+	inherited: boolean;
+}
+
+function storedSetting(
+	runtime: Runtime,
+	scope: Scope,
+	key: SettingKey,
+): string | boolean | undefined {
+	const config = runtime.configOf(scope).config;
+	if (!config || !Object.hasOwn(config, key)) {
+		return undefined;
+	}
+	return readSettingValue(config, key);
+}
+
+/** One setting as the chosen scope sees it, including what it inherited. */
+function scopedSetting(
+	runtime: Runtime,
+	scope: Scope,
+	key: SettingKey,
+): ScopedSetting {
+	const own = storedSetting(runtime, scope, key);
+	if (own !== undefined) {
+		return { value: own, own: true, inherited: false };
+	}
+	if (scope === "project") {
+		const global = storedSetting(runtime, "global", key);
+		if (global !== undefined) {
+			return { value: global, own: false, inherited: true };
+		}
+	}
+	return { value: defaultSetting(key), own: false, inherited: false };
+}
+
+/** A `defaultProfile` value as a row shows it: a full reference, or none. */
+function profileValueText(value: string | boolean | undefined): string {
+	if (typeof value !== "string" || value === "") {
+		return en.menu.none;
+	}
+	const ref = resolveRef(value, "global");
+	return ref ? formatRef(ref) : value;
+}
+
+function settingLabel(runtime: Runtime, scope: Scope, key: SettingKey): string {
+	const state = scopedSetting(runtime, scope, key);
+	const value =
+		key === "defaultProfile"
+			? profileValueText(state.value)
+			: en.menu.settingValue(key, String(state.value));
+	return en.menu.settingRow(en.menu.settingNames[key], value, state.inherited);
+}
+
+function settingValueRows(
+	runtime: Runtime,
+	scope: Scope,
+	key: SettingKey,
+): MenuRow[] {
+	const state = scopedSetting(runtime, scope, key);
+	const values = settingSpec(key)?.values ?? ["true", "false"];
+	const rows: MenuRow[] = values.map((value) => ({
+		id: value,
+		label: withCurrent(
+			en.menu.settingValue(key, value),
+			String(state.value) === value,
+		),
+	}));
+	// Choosing a value stores it here; dropping the project override so the global
+	// value applies again is a different decision, so it gets its own row. It has
+	// no meaning for `inheritGlobalBindings`, which exists only in the project.
+	if (scope === "project" && state.own && key !== "inheritGlobalBindings") {
+		const global = scopedSetting(runtime, "global", key);
+		rows.push({
+			id: UNSET_VALUE_ROW,
+			label: en.menu.useGlobalValue(
+				en.menu.settingValue(key, String(global.value)),
+			),
+		});
+	}
+	return rows;
+}
+
+/** Writes `display` through the runtime's presentation-only path. */
+function setDisplayValue(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	scope: Scope,
+	value: string,
+): void {
+	const mode = DISPLAY_MODES.find((entry) => entry === value);
+	if (!mode) {
+		return;
+	}
+	try {
+		runtime.setDisplay(scope, mode);
+	} catch (cause) {
+		notify(ctx, messageOf(cause), "error");
+		return;
+	}
+	notify(ctx, en.display.set(mode, scope));
+}
+
+async function editSetting(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	scope: Scope,
+	key: SettingKey,
+): Promise<void> {
+	const rows = settingValueRows(runtime, scope, key);
+	const row = await chooseRow(
+		ctx,
+		en.menu.settingValueTitle(en.menu.settingNames[key], scope),
+		rows,
+	);
+	if (!row) {
+		return;
+	}
+	if (row.id === UNSET_VALUE_ROW) {
+		unsetConfigSetting(runtime, ctx, key, scope);
+		return;
+	}
+	if (key === "display") {
+		setDisplayValue(runtime, ctx, scope, row.id);
+		return;
+	}
+	setConfigSetting(runtime, ctx, key, row.id, scope);
+}
+
+async function editDefaultProfile(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	scope: Scope,
+): Promise<void> {
+	const state = scopedSetting(runtime, scope, "defaultProfile");
+	const current =
+		typeof state.value === "string" ? profileValueText(state.value) : undefined;
+	const rows: MenuRow[] = profileEntries(runtime).map((entry) => ({
+		id: formatRef(entry.ref),
+		label: profileRowLabel(entry, formatRef(entry.ref) === current),
+	}));
+	if (scope === "project") {
+		if (state.own) {
+			const global = scopedSetting(runtime, "global", "defaultProfile");
+			rows.push({
+				id: UNSET_VALUE_ROW,
+				label: en.menu.useGlobalValue(profileValueText(global.value)),
+			});
+		}
+	} else {
+		rows.push({
+			id: "none",
+			label: withCurrent(en.menu.noDefault, current === undefined),
+		});
+	}
+	const row = await chooseRow(ctx, en.menu.defaultProfileTitle, rows);
+	if (!row) {
+		return;
+	}
+	if (row.id === UNSET_VALUE_ROW || row.id === "none") {
+		unsetConfigSetting(runtime, ctx, "defaultProfile", scope);
+		return;
+	}
+	const ref = parseRef(row.id);
+	if (!ref) {
+		return;
+	}
+	writeDefaultProfile(runtime, ctx, ref, scope);
+}
+
+async function settingsScreen(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	state: MenuState,
+): Promise<MenuScreen | undefined> {
+	const scope = menuScope(ctx, state);
+	const rows: MenuRow[] = [
+		{ id: "save-to", label: en.menu.scopeRow(en.menu.scopeName(scope)) },
+		{ id: "selection", label: settingLabel(runtime, scope, "selection") },
+		{
+			id: "default-profile",
+			label: settingLabel(runtime, scope, "defaultProfile"),
+		},
+		{ id: "subagents", label: settingLabel(runtime, scope, "subagents") },
+		{ id: "display", label: settingLabel(runtime, scope, "display") },
+		{ id: "back", label: en.menu.back },
+	];
+	const row = await chooseRow(ctx, en.menu.title.settings, rows);
+	if (!row || row.id === "back") {
+		return "main";
+	}
+	switch (row.id) {
+		case "save-to":
+			await chooseMenuScope(ctx, state);
+			break;
+		case "selection":
+			await editSetting(runtime, ctx, scope, "selection");
+			break;
+		case "default-profile":
+			await editDefaultProfile(runtime, ctx, scope);
+			break;
+		case "subagents":
+			await editSetting(runtime, ctx, scope, "subagents");
+			break;
+		case "display":
+			await editSetting(runtime, ctx, scope, "display");
+			break;
+	}
+	return "settings";
+}
+
+async function inspectScreen(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	state: MenuState,
+): Promise<MenuScreen | undefined> {
+	const rows: MenuRow[] = [
+		{ id: "status", label: en.menu.status },
+		{ id: "why", label: en.menu.why },
+		{ id: "preview", label: en.menu.preview },
+		{ id: "last-added", label: en.menu.showLast },
+		{ id: "config", label: en.menu.config },
+		{ id: "validate", label: en.menu.validate },
+		{ id: "reload", label: en.menu.reload },
+		{ id: "back", label: en.menu.back },
+	];
+	const row = await chooseRow(ctx, en.menu.title.inspect, rows);
+	if (!row || row.id === "back") {
+		return "main";
+	}
+	switch (row.id) {
+		case "status":
+			notify(ctx, statusText(runtime, ctx));
+			break;
+		case "why":
+			notify(ctx, whyText(runtime, ctx));
+			break;
+		case "preview":
+			handlePreview(runtime, ctx);
+			break;
+		case "last-added":
+			handleShow(runtime, ctx, 1);
+			break;
+		case "config":
+			handleConfig(runtime, ctx, menuScope(ctx, state));
+			break;
+		case "validate":
+			notify(ctx, validateText(runtime, ctx));
+			break;
+		case "reload":
+			handleReload(runtime, ctx);
+			break;
+	}
+	return "inspect";
+}
+
+/** Draws screens until one of them closes the menu. Esc backs out one level. */
+async function interactiveMenu(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	state: MenuState,
+): Promise<void> {
+	let screen: MenuScreen | undefined = "main";
+	while (screen !== undefined) {
+		switch (screen) {
+			case "main":
+				screen = await mainScreen(runtime, ctx);
+				break;
+			case "profiles":
+				screen = await profilesScreen(runtime, ctx, state);
+				break;
+			case "profile":
+				screen = await profileScreen(runtime, ctx, state);
+				break;
+			case "bindings":
+				screen = await bindingsScreen(runtime, ctx, state);
+				break;
+			case "settings":
+				screen = await settingsScreen(runtime, ctx, state);
+				break;
+			case "inspect":
+				screen = await inspectScreen(runtime, ctx, state);
+				break;
+		}
+	}
 }
 
 /** Writes one setting, then reports what the write means for this session. */
@@ -547,153 +1196,6 @@ function reloadAfterWrite(
 	if (key === "subagents") {
 		notify(ctx, en.settings.subagentsTakeEffect);
 	}
-}
-
-async function interactiveMenu(
-	runtime: Runtime,
-	ctx: ExtensionCommandContext,
-): Promise<void> {
-	const actions: PickerItem[] = [
-		{ value: "choose", label: en.menu.chooseProfile },
-		{ value: "once", label: en.menu.armOnce },
-		...(runtime.getStatus().once === undefined
-			? []
-			: [{ value: "cancel-once", label: en.menu.cancelOnce }]),
-		{ value: "list", label: en.menu.listProfiles },
-		{ value: "new", label: en.menu.createProfile },
-		{ value: "edit", label: en.menu.editProfile },
-		{ value: "bindings", label: en.menu.bindings },
-		{ value: "default", label: en.menu.defaultProfile },
-		{ value: "display", label: en.menu.showAddedText },
-		{ value: "status", label: en.menu.status },
-		{ value: "why", label: en.menu.why },
-		{ value: "preview", label: en.menu.preview },
-		{ value: "show", label: en.menu.showLast },
-		{ value: "config", label: en.menu.config },
-		{ value: "setting", label: en.menu.changeSetting },
-		{ value: "validate", label: en.menu.validate },
-		{ value: "reload", label: en.menu.reload },
-		{ value: "off", label: en.menu.turnOff },
-		{ value: "help", label: en.menu.help },
-	];
-	const choice = await selectItem(ctx, {
-		title: en.menu.title,
-		items: actions,
-	});
-	switch (choice) {
-		case undefined:
-			return;
-		case "choose":
-			await chooseProfileInteractive(runtime, ctx, en.menu.chooseProfileTitle);
-			return;
-		case "once": {
-			const entry = await pickProfileRef(runtime, ctx, en.menu.armOnceTitle);
-			if (entry) {
-				armOnce(runtime, ctx, formatRef(entry.ref));
-			}
-			return;
-		}
-		case "cancel-once":
-			cancelOnce(runtime, ctx);
-			return;
-		case "list":
-			notify(ctx, listProfileLines(runtime, undefined).join("\n") || en.profiles.noneInScope);
-			return;
-		case "new":
-			await createProfileInteractive(runtime, ctx);
-			return;
-		case "edit": {
-			const entry = await pickProfileRef(runtime, ctx, en.menu.editProfileTitle);
-			if (entry) {
-				await editProfileInteractive(runtime, ctx, entry.ref);
-			}
-			return;
-		}
-		case "bindings":
-			await bindingsMenu(runtime, ctx);
-			return;
-		case "default": {
-			const entry = await pickProfileRef(
-				runtime,
-				ctx,
-				en.menu.defaultProfileTitle,
-			);
-			if (entry) {
-				setDefaultProfile(runtime, ctx, formatRef(entry.ref), entry.ref.scope);
-			}
-			return;
-		}
-		case "display":
-			await chooseDisplayInteractive(runtime, ctx);
-			return;
-		case "status":
-			notify(ctx, statusText(runtime, ctx));
-			return;
-		case "why":
-			notify(ctx, whyText(runtime, ctx));
-			return;
-		case "preview":
-			handlePreview(runtime, ctx);
-			return;
-		case "show":
-			handleShow(runtime, ctx, 1);
-			return;
-		case "config": {
-			const scope = await chooseScopeInteractive(ctx);
-			if (scope) {
-				handleConfig(runtime, ctx, scope);
-			}
-			return;
-		}
-		case "setting":
-			await changeSettingInteractive(runtime, ctx);
-			return;
-		case "validate":
-			notify(ctx, validateText(runtime, ctx));
-			return;
-		case "reload":
-			handleReload(runtime, ctx);
-			return;
-		case "off":
-			runtime.setSelection({ mode: "off" });
-			notify(ctx, en.selection.off);
-			return;
-		case "help":
-			notify(ctx, en.help.join("\n"));
-	}
-}
-
-/**
- * The `display` entry: it changes only what the transcript paints. It asks for
- * the scope first, because a project setting and a global setting are different
- * decisions, and offers the project only when it is trusted.
- */
-async function chooseDisplayInteractive(
-	runtime: Runtime,
-	ctx: ExtensionCommandContext,
-): Promise<void> {
-	const scope = await chooseScopeInteractive(ctx, en.menu.displayScopeTitle);
-	if (!scope) {
-		return;
-	}
-	const choice = await selectItem(ctx, {
-		title: en.menu.displayTitle,
-		items: [
-			{ value: "hidden", label: en.menu.displayHidden },
-			{ value: "added", label: en.menu.displayAdded },
-		],
-	});
-	const mode = DISPLAY_MODES.find((entry) => entry === choice);
-	if (!mode) {
-		return;
-	}
-	try {
-		runtime.setDisplay(scope, mode);
-	} catch (cause) {
-		notify(ctx, messageOf(cause), "error");
-		return;
-	}
-	notify(ctx, en.display.set(mode, scope));
 }
 
 function statusText(runtime: Runtime, _ctx: ExtensionCommandContext): string {
@@ -894,6 +1396,35 @@ function handleOnce(
 	armOnce(runtime, ctx, input);
 }
 
+/**
+ * Writes `defaultProfile` into one config. The profile has to exist where it is
+ * named; the scope of the write is a separate decision, which is why the menu
+ * can store a global profile as the project default and the command cannot.
+ */
+function writeDefaultProfile(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	ref: ProfileRef,
+	scope: Scope,
+): void {
+	if (!runtime.hasProfile(ref)) {
+		notify(ctx, en.profiles.defaultMissing(formatRef(ref)), "error");
+		return;
+	}
+	const value = formatRef(ref);
+	try {
+		editConfig(runtime, ctx, scope, (config) => {
+			config.defaultProfile = value;
+			return true;
+		});
+	} catch (cause) {
+		notify(ctx, messageOf(cause), "error");
+		return;
+	}
+	reloadAfterWrite(runtime, ctx, "defaultProfile");
+	notify(ctx, en.profiles.defaultSet(value, scope));
+}
+
 function setDefaultProfile(
 	runtime: Runtime,
 	ctx: ExtensionCommandContext,
@@ -907,22 +1438,7 @@ function setDefaultProfile(
 		notify(ctx, en.profiles.invalidId(id), "error");
 		return;
 	}
-	if (!runtime.hasProfile({ scope, id })) {
-		notify(ctx, en.profiles.defaultMissing(`${scope}:${id}`), "error");
-		return;
-	}
-	const value = formatRef({ scope, id });
-	try {
-		editConfig(runtime, ctx, scope, (config) => {
-			config.defaultProfile = value;
-			return true;
-		});
-	} catch (cause) {
-		notify(ctx, messageOf(cause), "error");
-		return;
-	}
-	reloadAfterWrite(runtime, ctx, "defaultProfile");
-	notify(ctx, en.profiles.defaultSet(value, scope));
+	writeDefaultProfile(runtime, ctx, { scope, id }, scope);
 }
 
 function handleDefault(
@@ -1710,42 +2226,6 @@ async function removeBindingInteractive(
 	}
 }
 
-async function bindingsMenu(
-	runtime: Runtime,
-	ctx: ExtensionCommandContext,
-): Promise<void> {
-	for (;;) {
-		const choice = await selectItem(ctx, {
-			title: en.menu.bindingsTitle,
-			items: [
-				{ value: "add", label: en.menu.bindingsAdd },
-				{ value: "list", label: en.menu.bindingsList },
-				{ value: "remove", label: en.menu.bindingsRemove },
-				{ value: "back", label: en.menu.back },
-			],
-		});
-		if (choice === undefined || choice === "back") {
-			return;
-		}
-		if (choice === "list") {
-			const lines = bindingList(runtime);
-			notify(ctx, lines.length > 0 ? lines.join("\n") : en.bindings.none);
-			continue;
-		}
-		if (choice === "remove") {
-			await removeBindingInteractive(runtime, ctx);
-			continue;
-		}
-		const entry = await pickProfileRef(runtime, ctx, en.menu.bindProfileTitle);
-		if (entry) {
-			await handleBind(runtime, ctx, {
-				positional: [formatRef(entry.ref)],
-				flags: {},
-			});
-		}
-	}
-}
-
 function handleConfig(
 	runtime: Runtime,
 	ctx: ExtensionCommandContext,
@@ -1993,6 +2473,9 @@ export function registerPushCommands(pi: ExtensionAPI, runtime: Runtime): void {
 	});
 	pi.registerFlag(FLAG_AUTO, { description: en.flags.auto, type: "boolean" });
 	pi.registerFlag(FLAG_OFF, { description: en.flags.off, type: "boolean" });
+	// One registration per session, so the menu's remembered scope lasts exactly
+	// as long as the session it was chosen in.
+	const menu: MenuState = {};
 
 	pi.on("session_start", (_event, ctx) => {
 		runtime.attach(ctx);
@@ -2043,7 +2526,7 @@ export function registerPushCommands(pi: ExtensionAPI, runtime: Runtime): void {
 				switch (subcommand) {
 					case "menu":
 						if (ctx.hasUI) {
-							await interactiveMenu(runtime, ctx);
+							await interactiveMenu(runtime, ctx, menu);
 						} else {
 							notify(ctx, en.command.usage);
 						}
