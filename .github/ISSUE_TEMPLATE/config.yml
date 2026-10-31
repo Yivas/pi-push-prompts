@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Code of Conduct report
+    url: https://github.com/Yivas
+    about: Ask the maintainer for a private channel before describing the incident. Do not use a public issue.
+  - name: Security report
+    url: https://github.com/Yivas/pi-push-prompts/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue.

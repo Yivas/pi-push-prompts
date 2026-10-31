@@ -1,0 +1,54 @@
+{
+	"name": "pi-push-prompts",
+	"version": "0.1.0",
+	"description": "Adds profile text to each new user message in Pi, before it, after it, or both.",
+	"license": "MIT",
+	"author": "Yivas (https://github.com/Yivas)",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Yivas/pi-push-prompts.git"
+	},
+	"homepage": "https://github.com/Yivas/pi-push-prompts#readme",
+	"bugs": {
+		"url": "https://github.com/Yivas/pi-push-prompts/issues"
+	},
+	"keywords": [
+		"pi-package",
+		"pi",
+		"pi-extension",
+		"prompt",
+		"profile",
+		"user-message"
+	],
+	"type": "module",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"files": [
+		"src",
+		"schema",
+		"docs/compatibility.md",
+		"README.md",
+		"CHANGELOG.md",
+		"LICENSE",
+		"SECURITY.md"
+	],
+	"scripts": {
+		"test": "node --test test/core/*.test.ts test/integration/*.test.ts",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"lint": "biome lint src test",
+		"check": "npm run lint && npm run typecheck && npm test"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
+		"@earendil-works/pi-coding-agent": "1.4.0",
+		"@types/node": "24.19.2",
+		"typescript": "5.9.3"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"pi": {
+		"extensions": ["./src/index.ts"]
+	}
+}

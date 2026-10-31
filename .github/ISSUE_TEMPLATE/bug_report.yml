@@ -1,0 +1,80 @@
+name: Bug report
+description: Report a reproducible problem with pi-push-prompts.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste real prompts, profiles, credentials, session IDs or private paths. Reproduce with synthetic text. Security problems go through SECURITY.md, not this form.
+  - type: input
+    id: pi-version
+    attributes:
+      label: Pi version
+      description: The output of `pi --version`.
+    validations:
+      required: true
+  - type: input
+    id: package-version
+    attributes:
+      label: pi-push-prompts version
+      description: The version you installed, or the commit if you loaded the extension from a checkout.
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How it is loaded
+      options:
+        - pi install npm:pi-push-prompts
+        - pi -e npm:pi-push-prompts
+        - pi --extension /path/to/src/index.ts from a checkout
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Name and version, for example Windows 11 or Ubuntu 24.04.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence of commands, profile files and messages that shows the problem. Replace your own text.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What happened instead. If a command printed something, paste that output with private data removed.
+    validations:
+      required: true
+  - type: textarea
+    id: reports
+    attributes:
+      label: Reports
+      description: What `/push status`, `/push validate` and `/push preview` print, when the problem is about which profile applies.
+  - type: textarea
+    id: other-extensions
+    attributes:
+      label: Other extensions loaded
+      description: Name any extension that also changes the new user message or the system prompt.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I read docs/compatibility.md and this is not one of the listed limits.
+          required: true
+        - label: I searched existing issues.
+          required: true
+        - label: I removed private prompts, profiles, credentials, session IDs and paths from this report.
+          required: true

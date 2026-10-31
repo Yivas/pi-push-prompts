@@ -1,0 +1,11 @@
+/node_modules/
+/dist/
+/coverage/
+/runtime/
+/.pi/
+.env
+.env.*
+*.log
+
+# Local harness temporary roots; removed by the harness, ignored if a run is interrupted.
+/.harness-tmp-*/

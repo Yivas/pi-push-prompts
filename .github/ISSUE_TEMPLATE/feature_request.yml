@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a change that fits the documented scope.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste real prompts, profiles, credentials, session IDs or private paths. Security problems go through SECURITY.md, not this form.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that the extension does not allow today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should happen instead? Include the commands, configuration or files you would expect to use.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What you tried instead, and why it was not enough.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This keeps the extension inside its contract. Only the new user message is changed, and the system prompt, tools, model, thinking level and cache settings stay untouched.
+          required: true
+        - label: I read the README and docs/compatibility.md before writing this.
+          required: true
