@@ -122,6 +122,7 @@ export class ScriptedUI {
 	private readonly choices: Array<string | undefined>;
 	private readonly inputs: Array<string | undefined>;
 	private readonly editors: Array<string | undefined>;
+	private readonly confirms: Array<boolean | undefined>;
 	/** Dialogs in the order they were opened. */
 	readonly opened: string[] = [];
 
@@ -130,16 +131,19 @@ export class ScriptedUI {
 			readonly choices?: readonly string[];
 			readonly inputs?: readonly string[];
 			readonly editors?: readonly (string | undefined)[];
+			readonly confirms?: readonly (boolean | undefined)[];
 		} = {},
 	) {
 		this.choices = [...(options.choices ?? [])];
 		this.inputs = [...(options.inputs ?? [])];
 		this.editors = [...(options.editors ?? [])];
+		this.confirms = [...(options.confirms ?? [])];
 	}
 
 	wrap(base: ExtensionUIContext): ExtensionUIContext {
 		const next = (queue: Array<string | undefined>): string | undefined =>
 			queue.shift();
+		const nextConfirm = (): boolean | undefined => this.confirms.shift();
 		const overrides = {
 			custom: async (factory: unknown) => {
 				this.opened.push("custom");
@@ -164,6 +168,10 @@ export class ScriptedUI {
 			input: async (title: string) => {
 				this.opened.push(`input: ${title}`);
 				return next(this.inputs);
+			},
+			confirm: async (title: string, message: string) => {
+				this.opened.push(`confirm: ${title} ${message}`);
+				return nextConfirm() ?? false;
 			},
 			editor: async (title: string) => {
 				this.opened.push(`editor: ${title}`);

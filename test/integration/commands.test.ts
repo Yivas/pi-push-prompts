@@ -715,6 +715,149 @@ describe("push-prompts: /push writes configuration and profiles", () => {
 	});
 });
 
+describe("push-prompts: /push turns a name into an id", () => {
+	it("offers the derived id, keeps the typed name as the description", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeConfig("global", {});
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const ui = new ScriptedUI({
+				choices: ["new", "global"],
+				inputs: ["Pensamiento abstracto"],
+				confirms: [true],
+				editors: ["BEFORE THE MESSAGE", "AFTER THE MESSAGE"],
+			});
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: false,
+				ui,
+			});
+
+			await opened.session.prompt("/push");
+
+			const directory = join(
+				globalRoot(harness),
+				"profiles",
+				"pensamiento-abstracto",
+			);
+			assert.deepEqual(
+				(await readdir(directory)).sort(),
+				["append.md", "prepend.md"],
+				"the files are written under the derived id",
+			);
+			assert.equal(
+				await readFile(join(directory, "prepend.md"), "utf8"),
+				"BEFORE THE MESSAGE\n",
+			);
+			const config = await readConfig(harness);
+			const profiles = config.profiles as Record<
+				string,
+				{ description?: string }
+			>;
+			assert.equal(
+				profiles["pensamiento-abstracto"]?.description,
+				"Pensamiento abstracto",
+				"the typed name is kept as the description",
+			);
+
+			// The derived id is usable without a second command.
+			await opened.session.prompt("/push use global:pensamiento-abstracto");
+			const body = await sendTurn(opened.session, harness.transport, INPUT);
+			assert.equal(
+				userTextOf(body),
+				effectiveText(INPUT, {
+					prepend: "BEFORE THE MESSAGE",
+					append: "AFTER THE MESSAGE",
+				}),
+			);
+		});
+	});
+
+	it("writes nothing when the suggested id is declined", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeConfig("global", {});
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const ui = new ScriptedUI({
+				choices: ["new"],
+				inputs: ["Pensamiento abstracto"],
+				confirms: [false],
+			});
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: false,
+				ui,
+			});
+
+			await opened.session.prompt("/push");
+
+			assert.equal(opened.notices.at(-1)?.message, "Cancelled. Nothing was written.");
+			await assert.rejects(
+				readdir(join(globalRoot(harness), "profiles")),
+				"no profile directory was created",
+			);
+			assert.deepEqual((await readConfig(harness)).profiles, undefined);
+		});
+	});
+
+	it("reports the rule once when the name cannot become an id", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeConfig("global", {});
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const ui = new ScriptedUI({ choices: ["new"], inputs: ["!!!"] });
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: false,
+				ui,
+			});
+			const before = opened.notices.length;
+
+			await opened.session.prompt("/push");
+
+			const notices = opened.notices.slice(before);
+			assert.equal(notices.length, 1, "one notification for one failure");
+			assert.equal(notices[0]?.type, "error");
+			assert.match(notices[0]?.message ?? "", /cannot become a profile id/);
+			assert.match(notices[0]?.message ?? "", /letters, digits, dot, dash and underscore/);
+			await assert.rejects(readdir(join(globalRoot(harness), "profiles")));
+		});
+	});
+
+	it("refuses an unsafe id on the command line and names the derived one", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeConfig("global", {});
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: false,
+			});
+			const before = opened.notices.length;
+
+			await opened.session.prompt('/push new "Pensamiento abstracto"');
+
+			const notices = opened.notices.slice(before);
+			assert.equal(notices.length, 1, "one notification for one failure");
+			assert.equal(notices[0]?.type, "error");
+			assert.match(notices[0]?.message ?? "", /not a valid profile id/);
+			assert.match(
+				notices[0]?.message ?? "",
+				/Try \/push new pensamiento-abstracto\./,
+			);
+			await assert.rejects(readdir(join(globalRoot(harness), "profiles")));
+		});
+	});
+});
+
 describe("push-prompts: /push flags", () => {
 	it("rejects a combination and applies nothing", async () => {
 		await withPushHarness(async (harness) => {
