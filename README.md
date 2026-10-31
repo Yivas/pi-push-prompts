@@ -147,7 +147,7 @@ A rule has an optional `provider` and `model`; an omitted field matches anything
 
 | Command | Effect |
 | --- | --- |
-| `/push` | Menu of the common actions. |
+| `/push` | Sectioned menu, described below. |
 | `/push use <profile>` | Pin a profile for this session. |
 | `/push auto` | Resolve from bindings and defaults again. |
 | `/push off` | Stop adding text for this session. |
@@ -172,6 +172,27 @@ A rule has an optional `provider` and `model`; an omitted field matches anything
 | `/push help` | Print the command list. |
 
 Settings that `set` and `unset` accept: `selection` (`auto` or `off`; `manual` has its own command), `display` (`hidden` or `added`), `subagents` (`off`, `bindings`, `inherit`) and `inheritGlobalBindings` (`true` or `false`, project config only). `defaultProfile` is written by `/push default`.
+
+### The menu
+
+`/push` without arguments opens a menu whose title carries the state, so the first row is always an action:
+
+```text
+Push · Active: <profile> (<session|auto|default>) · Next: <profile|none>
+  Use a profile for this session…
+  Next message: <profile|none>…
+  Profiles…          browse (show text, edit, use, set as default), create, edit
+  Model bindings…    bind the current model, remove a binding, list, inherit global bindings
+  Settings…          where changes are saved, selection, default profile, subagents, added text
+  Check and inspect… status, why, preview, last added text, configuration, check, reload
+  Help
+```
+
+Every setting is changed from the menu, and nothing there writes to a message. The title reads `Active: off` for a session that adds nothing, and names the reason the profile applies: `(session)` for a pinned profile, `(auto)` for a binding, `(default)` for `defaultProfile`. Long references are shortened with `…` to keep the state on one line.
+
+`Settings` starts with the row `Save changes to`, which picks the `config.json` every write from the menu uses — the project config when the project is trusted, the global one otherwise, and never the project when it is not trusted. It is remembered for the session, and settings, bindings and `defaultProfile` all follow it. A value the project does not store but the global config does is shown as `(from global)`, and its selector offers `Use global value (<value>)` to remove the project override; that is a separate choice from picking a value. The current value is marked `(current)`.
+
+Esc and `Back` return one level and Esc at the title closes the menu. A setting change returns to `Settings` with the new value; choosing a session profile or arming one for the next message closes the menu and reports it. A profile is shown as `<id> (<scope>)`, so a profile named `Off`, `Back` or `Automatic` never reads like one of the menu's own rows.
 
 `--scope` takes `global` or `project`. `/push new`, `/push set`, `/push unset` and `/push config` default to the global config; `/push bind` defaults to the scope of the profile it names and `/push default` to the scope of an explicit reference, then to global; `/push unbind` without `--scope` searches both. Writing the project config is refused when the project is not trusted.
 
