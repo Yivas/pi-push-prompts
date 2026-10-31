@@ -22,7 +22,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { insertionOf, normalizeProfileText } from "../core/decorate.ts";
-import { isSafeId } from "../core/ids.ts";
+import { isSafeId, suggestId } from "../core/ids.ts";
 import { matchRule } from "../core/match.ts";
 import {
 	atomicWriteFile,
@@ -1001,8 +1001,14 @@ function handleNew(
 	args: ParsedArgs,
 ): void {
 	const id = args.positional[0];
-	if (!id || !isSafeId(id)) {
+	if (!id) {
 		notify(ctx, en.command.usage, "warning");
+		return;
+	}
+	if (!isSafeId(id)) {
+		// Strict here: the directory is created with exactly the id given, so the
+		// message states the rule and the id the same name would produce instead.
+		notify(ctx, en.profiles.invalidNewId(id, suggestId(id)), "error");
 		return;
 	}
 	const scopeFlag = parseScope(args.flags);
@@ -1050,18 +1056,72 @@ function handleNew(
 	notify(ctx, en.profiles.created(formatRef(ref), profileDir(runtime, ref)));
 }
 
+/**
+ * Records the name a person typed as the profile's description. The files are
+ * what make a profile; this is the text the lists show, and it is written only
+ * when the name differs from the id.
+ */
+function writeProfileDescription(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	ref: ProfileRef,
+	description: string,
+): void {
+	editConfig(runtime, ctx, ref.scope, (config) => {
+		const current = config.profiles;
+		const profiles =
+			typeof current === "object" && current !== null && !Array.isArray(current)
+				? (current as Record<string, unknown>)
+				: {};
+		const existing = profiles[ref.id];
+		const meta =
+			typeof existing === "object" &&
+			existing !== null &&
+			!Array.isArray(existing)
+				? { ...(existing as Record<string, unknown>) }
+				: {};
+		meta.description = description;
+		profiles[ref.id] = meta;
+		config.profiles = profiles;
+		return true;
+	});
+}
+
 async function createProfileInteractive(
 	runtime: Runtime,
 	ctx: ExtensionCommandContext,
 ): Promise<void> {
-	const id = (await ctx.ui.input(en.menu.createProfile, "for example: review"))?.trim();
-	if (!id) {
+	const name = (
+		await ctx.ui.input(
+			en.menu.createProfileTitle,
+			en.menu.createProfilePlaceholder,
+		)
+	)?.trim();
+	if (!name) {
 		notify(ctx, en.profileCancelled);
 		return;
 	}
-	if (!isSafeId(id)) {
-		notify(ctx, en.profiles.invalidId(id), "error");
-		return;
+	// The dialog asks for a name. When the name is not already an id, the id is
+	// derived from it and offered, and the name is kept as the description so a
+	// person-readable title is not lost.
+	let id = name;
+	let description: string | undefined;
+	if (!isSafeId(name)) {
+		const suggested = suggestId(name);
+		if (suggested === "") {
+			notify(ctx, en.profiles.invalidIdRule(name), "error");
+			return;
+		}
+		const accepted = await ctx.ui.confirm(
+			en.profiles.suggestIdTitle,
+			en.profiles.suggestIdBody(name, suggested),
+		);
+		if (!accepted) {
+			notify(ctx, en.profileCancelled);
+			return;
+		}
+		id = suggested;
+		description = name;
 	}
 	const scope = await chooseScopeInteractive(ctx);
 	if (!scope) {
@@ -1100,6 +1160,12 @@ async function createProfileInteractive(
 		parts.push(["append", append]);
 	}
 	try {
+		// The description goes first: a description whose profile has no files yet
+		// is ignored by the loader, while files written before a failed description
+		// would look complete and silently lose the name.
+		if (description !== undefined) {
+			writeProfileDescription(runtime, ctx, ref, description);
+		}
 		// Same rule as the flag path: check both editors' text, then write.
 		for (const [part, text] of parts) {
 			assertProfilePartFits(ref, part, text);
@@ -1113,6 +1179,9 @@ async function createProfileInteractive(
 	}
 	reloadAfterWrite(runtime, ctx, undefined);
 	notify(ctx, en.profiles.created(formatRef(ref), profileDir(runtime, ref)));
+	if (description !== undefined) {
+		notify(ctx, en.profiles.keepDescription(formatRef(ref), description));
+	}
 }
 
 async function editProfileInteractive(

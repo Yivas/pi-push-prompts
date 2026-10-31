@@ -23,6 +23,14 @@ function scopeLabel(scope: Scope): string {
 	return scope === "project" ? "Project (this repository)" : "Global (all projects)";
 }
 
+/**
+ * The id rule in the words a person reads. Ids become directory names, so the
+ * rule is not cosmetic; it is written once here so every message states it the
+ * same way.
+ */
+const ID_RULE =
+	"An id uses letters, digits, dot, dash and underscore, starts with a letter or digit, and is at most 64 characters long.";
+
 export const en = {
 	/** Shown when the user backs out of a dialog without a change. */
 	profileCancelled: "Cancelled. Nothing was written.",
@@ -131,6 +139,10 @@ export const en = {
 		cancelOnce: "Cancel the profile armed for the next message",
 		listProfiles: "List profiles",
 		createProfile: "Create a profile",
+		/** The dialog title carries the rule: Pi 1.4.0 does not render a placeholder. */
+		createProfileTitle:
+			"Name the new profile; its id keeps letters, digits, dot, dash and underscore (up to 64)",
+		createProfilePlaceholder: "for example: code review",
 		editProfile: "Edit a profile",
 		bindings: "Manage model bindings",
 		defaultProfile: "Set the default profile",
@@ -208,6 +220,18 @@ export const en = {
 		none: "No profiles found. Create one first.",
 		notFound: (ref: string) => `Profile ${ref} was not found.`,
 		invalidId: (id: string) => `"${id}" is not a valid profile id.`,
+		invalidNewId: (id: string, suggestion: string) =>
+			`"${id}" is not a valid profile id. ${ID_RULE}${
+				suggestion === "" ? "" : ` Try /push new ${suggestion}.`
+			}`,
+		/** Shown when the typed name cannot become an id at all. */
+		invalidIdRule: (name: string) =>
+			`"${name}" cannot become a profile id. ${ID_RULE}`,
+		suggestIdTitle: "Use a suggested id?",
+		suggestIdBody: (name: string, id: string) =>
+			`"${name}" cannot be used as an id. Use "${id}"?`,
+		keepDescription: (id: string, description: string) =>
+			`"${description}" is stored as the description of ${id}.`,
 		noneInScope: "No profiles found.",
 		created: (ref: string, directory: string) =>
 			`Created ${ref} at ${directory}.`,

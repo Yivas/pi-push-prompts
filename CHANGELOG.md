@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows the `0.y.z` convention used by its author: `PATCH` for compatible fixes, `MINOR` for features or breaking changes.
 
+## [Unreleased]
+
+### Changed
+
+- The menu entry "Create a profile" asks for a name and, when that name is not already an id, offers the id derived from it (`Pensamiento abstracto` → `pensamiento-abstracto`) instead of failing. The dialog title states the id rule before anything is typed, and the typed name is stored as the profile's `description` in `config.json`. A name no id can be derived from reports the rule in one message.
+- `/push new <id>` stays strict: the directory is created with exactly the id given, and an id that breaks the rule is refused with a message that states the rule and names the id the same name would produce.
+
 ## [0.1.0] - 2026-10-31
 
 First public release, MIT licensed, distributed as `pi-push-prompts` and installable with `pi install npm:pi-push-prompts@0.1.0`.
