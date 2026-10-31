@@ -1004,17 +1004,46 @@ function writeProfilePart(
  * filesystem instead of the loaded profiles.
  */
 function collidingId(runtime: Runtime, ref: ProfileRef): string | undefined {
+	const directory = path.join(rootOf(runtime, ref.scope), "profiles");
 	let entries: string[];
 	try {
-		entries = fs.readdirSync(path.join(rootOf(runtime, ref.scope), "profiles"));
-	} catch {
-		// No `profiles/` directory yet: nothing can collide.
-		return undefined;
+		entries = fs.readdirSync(directory);
+	} catch (cause) {
+		if ((cause as NodeJS.ErrnoException).code === "ENOENT") {
+			// No `profiles/` directory yet: nothing can collide.
+			return undefined;
+		}
+		// Any other failure means the check could not run, so the create stops
+		// instead of writing a profile the filesystem may not tell apart.
+		throw new Error(en.profiles.profilesUnreadable(directory, messageOf(cause)));
 	}
 	const wanted = ref.id.toLowerCase();
 	return entries.find(
 		(entry) => entry !== ref.id && entry.toLowerCase() === wanted,
 	);
+}
+
+/**
+ * Stops a create whose id collides with an existing profile ignoring case, and
+ * one whose collision check could not run. `true` means the caller must stop.
+ */
+function refuseUnsafeCreate(
+	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	ref: ProfileRef,
+): boolean {
+	let collision: string | undefined;
+	try {
+		collision = collidingId(runtime, ref);
+	} catch (cause) {
+		notify(ctx, messageOf(cause), "error");
+		return true;
+	}
+	if (collision === undefined) {
+		return false;
+	}
+	notify(ctx, en.profiles.caseCollision(ref.id, collision, ref.scope), "error");
+	return true;
 }
 
 function handleNew(
@@ -1047,9 +1076,7 @@ function handleNew(
 		notify(ctx, en.profiles.exists(formatRef(ref)), "warning");
 		return;
 	}
-	const collision = collidingId(runtime, ref);
-	if (collision !== undefined) {
-		notify(ctx, en.profiles.caseCollision(id, collision, scope), "error");
+	if (refuseUnsafeCreate(runtime, ctx, ref)) {
 		return;
 	}
 	const prepend = flagString(args.flags, "prepend");
@@ -1159,9 +1186,7 @@ async function createProfileInteractive(
 		notify(ctx, en.profiles.exists(formatRef(ref)), "warning");
 		return;
 	}
-	const collision = collidingId(runtime, ref);
-	if (collision !== undefined) {
-		notify(ctx, en.profiles.caseCollision(id, collision, scope), "error");
+	if (refuseUnsafeCreate(runtime, ctx, ref)) {
 		return;
 	}
 	const prepend = await ctx.ui.editor(

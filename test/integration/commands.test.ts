@@ -961,6 +961,38 @@ describe("push-prompts: /push turns a name into an id", () => {
 			);
 		});
 	});
+
+	it("stops the create when the profiles directory cannot be read", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeConfig("global", {});
+			// A regular file where `profiles/` belongs makes the listing fail with
+			// ENOTDIR, which is neither "no profiles yet" nor a collision.
+			const blocker = join(globalRoot(harness), "profiles");
+			await writeFile(blocker, "not a directory", "utf8");
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: false,
+			});
+			const before = opened.notices.length;
+
+			await opened.session.prompt("/push new review --prepend SYNTHETIC-OTHER");
+
+			const notices = opened.notices.slice(before);
+			assert.equal(notices.length, 1, "one notification for one failure");
+			assert.equal(notices[0]?.type, "error");
+			assert.match(notices[0]?.message ?? "", /could not be read/);
+			assert.match(notices[0]?.message ?? "", /Nothing was written/);
+			assert.equal(
+				await readFile(blocker, "utf8"),
+				"not a directory",
+				"the blocker was left alone",
+			);
+		});
+	});
 });
 
 describe("push-prompts: /push flags", () => {

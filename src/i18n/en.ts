@@ -23,6 +23,11 @@ function scopeLabel(scope: Scope): string {
 	return scope === "project" ? "Project (this repository)" : "Global (all projects)";
 }
 
+/** How a scope is named after an id, which lives in a scope and not in a file. */
+function scopeWord(scope: Scope): string {
+	return scope === "project" ? "the project scope" : "the global scope";
+}
+
 /**
  * The id rule in the words a person reads. Ids become directory names, so the
  * rule is not cosmetic; it is written once here so every message states it the
@@ -237,7 +242,9 @@ export const en = {
 				: `Created ${ref} at ${directory}, with "${description}" as its description.`,
 		/** A new id that differs only in case from a profile that already exists. */
 		caseCollision: (id: string, existing: string, scope: Scope) =>
-			`"${id}" differs only in case from the existing profile ${existing} in ${scopeName(scope)}. Use another id.`,
+			`"${id}" differs only in case from the existing profile ${existing} in ${scopeWord(scope)}. Use another id.`,
+		profilesUnreadable: (directory: string, reason: string) =>
+			`Cannot create a profile: ${directory} could not be read (${reason}). Nothing was written.`,
 		notWritten: (id: string, directory: string) =>
 			`Nothing was written for ${id}. Add --prepend <text> or --append <text> to /push new, or use "Create a profile" in the menu; the files would go in ${directory}.`,
 		exists: (ref: string) => `${ref} already exists. Use /push edit.`,
