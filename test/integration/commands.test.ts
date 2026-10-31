@@ -673,7 +673,7 @@ describe("push-prompts: /push writes configuration and profiles", () => {
 				harness.sandbox.sessionDir,
 			);
 			const ui = new ScriptedUI({
-				choices: ["profiles", "create", "global", undefined, undefined],
+				choices: ["profiles", "create", undefined, undefined],
 				inputs: ["fresh"],
 				editors: ["BEFORE THE MESSAGE", "AFTER THE MESSAGE", "EDITED AFTER"],
 			});
@@ -683,7 +683,7 @@ describe("push-prompts: /push writes configuration and profiles", () => {
 				ui,
 			});
 
-			// The menu's "Create a profile" entry: id, scope, prepend, append.
+			// The menu's create row: name, prepend and append, in the remembered scope.
 			await opened.session.prompt("/push");
 			const directory = join(globalRoot(harness), "profiles", "fresh");
 			assert.deepEqual(
@@ -736,7 +736,7 @@ describe("push-prompts: /push turns a name into an id", () => {
 				harness.sandbox.sessionDir,
 			);
 			const ui = new ScriptedUI({
-				choices: ["profiles", "create", "global", undefined, undefined],
+				choices: ["profiles", "create", undefined, undefined],
 				inputs: ["Pensamiento abstracto"],
 				confirms: [true],
 				editors: ["BEFORE THE MESSAGE", "AFTER THE MESSAGE"],
@@ -853,7 +853,7 @@ describe("push-prompts: /push turns a name into an id", () => {
 				harness.sandbox.sessionDir,
 			);
 			const ui = new ScriptedUI({
-				choices: ["profiles", "create", "global", undefined, undefined],
+				choices: ["profiles", "create", undefined, undefined],
 				inputs: ["Pensamiento abstracto"],
 				confirms: [true],
 				editors: ["X".repeat(DEFAULT_MAX_PROFILE_BYTES + 1), ""],
@@ -894,7 +894,7 @@ describe("push-prompts: /push turns a name into an id", () => {
 				harness.sandbox.sessionDir,
 			);
 			const ui = new ScriptedUI({
-				choices: ["profiles", "create", "global", undefined, undefined],
+				choices: ["profiles", "create", undefined, undefined],
 				inputs: ["Pensamiento abstracto"],
 				confirms: [true],
 				editors: ["BEFORE THE MESSAGE", "AFTER THE MESSAGE"],
@@ -1068,7 +1068,7 @@ describe("push-prompts: the /push menu", () => {
 			]);
 			assert.deepEqual(ui.dialogs[1]?.labels, [
 				"Browse profiles…",
-				"Create a profile…",
+				"Create a profile in Global…",
 				"Edit a profile…",
 				"Back",
 			]);
@@ -1080,10 +1080,10 @@ describe("push-prompts: the /push menu", () => {
 			], "the bindings section offers no project row while the project is untrusted");
 			assert.deepEqual(ui.dialogs[5]?.labels, [
 				"Save changes to: Global…",
-				"Selection: auto",
-				"Default profile: none",
-				"Subagents: bindings",
-				"Added text: hidden",
+				"Selection: auto…",
+				"Default profile: none…",
+				"Subagents: bindings…",
+				"Added text: hidden…",
 				"Back",
 			]);
 			assert.deepEqual(ui.dialogs[7]?.labels, [
@@ -1165,8 +1165,23 @@ describe("push-prompts: the /push menu", () => {
 			await opened.session.prompt("/push");
 			assert.equal(
 				ui.dialogs.at(-1)?.title,
-				"Push · Active: global:a-very-l… (session) · Next: none",
-				"a long reference is shortened, never the state around it",
+				"Push · Active: global:a-ver…ile-name (session) · Next: none",
+				"a long reference keeps its scope and its tail",
+			);
+
+			// A second long id of the same scope reads as the other profile: the tail
+			// the shortening keeps is what tells them apart.
+			await harness.writeProfile("global", "another-very-long-profile-name", {
+				prepend: PREFIX,
+			});
+			await opened.session.prompt("/push reload");
+			await opened.session.prompt("/push use global:another-very-long-profile-name");
+			ui.answer(undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs.at(-1)?.title,
+				"Push · Active: global:anoth…ile-name (session) · Next: none",
+				"two long ids ending alike still read as two different profiles",
 			);
 		});
 	});
@@ -1230,12 +1245,21 @@ describe("push-prompts: the /push menu", () => {
 			await opened.session.prompt("/push");
 			assert.deepEqual(ui.dialogs[start + 1]?.labels, [
 				"Save changes to: Project…",
-				"Selection: auto",
-				"Default profile: global:base",
-				"Subagents: inherit",
-				"Added text: added",
+				"Selection: auto…",
+				"Default profile: global:base…",
+				"Subagents: inherit…",
+				"Added text: added…",
 				"Back",
 			], "the screen shows the values that were just written");
+
+			const createStart = ui.dialogs.length;
+			ui.answer("profiles", undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs[createStart + 1]?.labels[1],
+				"Create a profile in Project…",
+				"the create row names the config it will write to",
+			);
 		});
 	});
 
@@ -1319,7 +1343,7 @@ describe("push-prompts: the /push menu", () => {
 			await opened.session.prompt("/push");
 			assert.equal(
 				ui.dialogs[start + 1]?.labels[3],
-				"Subagents: off (from global)",
+				"Subagents: off (from global)…",
 				"the row names the value that now applies and where it comes from",
 			);
 
@@ -1330,6 +1354,63 @@ describe("push-prompts: the /push menu", () => {
 				ui.dialogs[start + 2]?.labels,
 				["off (current)", "bindings", "inherit"],
 				"with nothing left to remove, the selector offers values only",
+			);
+		});
+	});
+
+	it("names the pinned profile in the selection row and keeps it while it is current", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "base", { prepend: PREFIX });
+			await harness.writeConfig("global", {
+				selection: { mode: "manual", profile: "global:base" },
+			});
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: SessionManager.create(
+					harness.sandbox.cwd,
+					harness.sandbox.sessionDir,
+				),
+				projectTrusted: false,
+				ui,
+			});
+
+			let start = ui.dialogs.length;
+			ui.answer("settings", undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs[start + 1]?.labels[1],
+				"Selection: manual (global:base)…",
+				"a manual selection names the profile it pins",
+			);
+
+			start = ui.dialogs.length;
+			ui.answer("settings", "selection", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(
+				ui.dialogs[start + 2]?.labels,
+				["manual (global:base) (current)", "auto", "off"],
+				"the selector marks the pinned selection as current",
+			);
+
+			start = ui.dialogs.length;
+			ui.answer("settings", "selection", "manual", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(
+				(await readConfig(harness)).selection,
+				{ mode: "manual", profile: "global:base" },
+				"choosing the pinned row keeps the profile",
+			);
+
+			start = ui.dialogs.length;
+			ui.answer("settings", "selection", "off", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual((await readConfig(harness)).selection, { mode: "off" });
+			assert.ok(
+				opened.notices.some(
+					(notice) =>
+						notice.message === "The previous selection.profile was dropped.",
+				),
+				"replacing the pinned selection says what it discarded",
 			);
 		});
 	});
@@ -1533,7 +1614,7 @@ describe("push-prompts: the /push menu", () => {
 				"Bind anthropic/claude-sonnet-4-5 to a profile…",
 				"Remove a binding…",
 				"Show all bindings",
-				"Inherit global bindings: yes",
+				"Inherit global bindings: yes…",
 				"Back",
 			]);
 
@@ -1559,7 +1640,7 @@ describe("push-prompts: the /push menu", () => {
 			start = ui.dialogs.length;
 			ui.answer("bindings", undefined);
 			await opened.session.prompt("/push");
-			assert.equal(ui.dialogs[start + 1]?.labels[3], "Inherit global bindings: no");
+			assert.equal(ui.dialogs[start + 1]?.labels[3], "Inherit global bindings: no…");
 
 			start = ui.dialogs.length;
 			ui.answer("bindings", "list", undefined);
@@ -1598,7 +1679,7 @@ describe("push-prompts: the /push menu", () => {
 				"Show text",
 				"Edit",
 				"Use for this session",
-				"Set as default",
+				"Set as default in Project",
 				"Back",
 			]);
 
