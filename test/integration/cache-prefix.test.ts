@@ -16,6 +16,8 @@
 import "../support/pinned-pi-package.ts";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import { type AgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import { APPLIED_ENTRY_TYPE } from "../../src/core/applied.ts";
@@ -215,6 +217,12 @@ function withoutPromptCacheKey(body: string, key: string): string {
 function runtimeOf(opened: OpenedSession): Runtime {
 	assert.ok(opened.runtime, "the extension exposed its runtime");
 	return opened.runtime;
+}
+
+/** The global `config.json` as the suite's menu writes it. */
+async function globalConfig(harness: PushHarness): Promise<Record<string, unknown>> {
+	const file = join(harness.sandbox.agentDir, "push-prompts", "config.json");
+	return JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
 }
 
 /** Body of the most recent provider request, which is the candidate's. */
@@ -563,8 +571,10 @@ function testProvider(providerCase: ProviderCase): void {
 				harness.sandbox.cwd,
 				harness.sandbox.sessionDir,
 			);
-			// The menu answers: the display entry, the global scope, then hidden.
-			const ui = new ScriptedUI({ choices: ["display", "global", "hidden"] });
+			// The menu answers: the Settings section, the added-text row, then hidden.
+			const ui = new ScriptedUI({
+				choices: ["settings", "display", "hidden", undefined, undefined],
+			});
 			const opened = await harness.open({
 				sessionManager: manager,
 				model,
@@ -732,6 +742,123 @@ function testProvider(providerCase: ProviderCase): void {
 				// start in the state the switch produced, or it is not the same request.
 				thinkingLevel: opened.session.thinkingLevel,
 				label: `after switching to ${targetModel.providerId}/${targetModel.modelId}`,
+			});
+		});
+	});
+
+	it("drives the whole menu between sends and adds only the profile text", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "base", { prepend: PREFIX });
+			await harness.writeProfile("global", "other", { prepend: OTHER_PREFIX });
+			await harness.writeConfig("global", {
+				selection: { mode: "manual", profile: "global:base" },
+			});
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: manager,
+				model,
+				projectTrusted: false,
+				ui,
+			});
+
+			await assertTurnKeepsCache({
+				harness,
+				provider,
+				session: opened.session,
+				text: INPUT,
+				inserted: { prepend: PREFIX },
+				label: "before the menu",
+			});
+
+			// The session profile row: choosing one closes the menu.
+			ui.answer("use-session", "global:other");
+			await opened.session.prompt("/push");
+			assert.deepEqual(
+				runtimeOf(opened).getStatus().selection,
+				{ mode: "manual", profile: "global:other" },
+				"the menu changed the session profile",
+			);
+			await assertTurnKeepsCache({
+				harness,
+				provider,
+				session: opened.session,
+				text: SECOND_INPUT,
+				inserted: { prepend: OTHER_PREFIX },
+				label: "after the menu changed the session profile",
+			});
+
+			// The next-message row: armed for one send, then cancelled.
+			ui.answer("next-message", "global:base");
+			await opened.session.prompt("/push");
+			await assertTurnKeepsCache({
+				harness,
+				provider,
+				session: opened.session,
+				text: THIRD_INPUT,
+				inserted: { prepend: PREFIX },
+				label: "with a profile armed from the menu",
+			});
+			ui.answer("next-message", "cancel-next");
+			await opened.session.prompt("/push");
+			assert.equal(
+				runtimeOf(opened).getStatus().once,
+				undefined,
+				"the menu cancelled the armed profile",
+			);
+			await assertTurnKeepsCache({
+				harness,
+				provider,
+				session: opened.session,
+				text: FOURTH_INPUT,
+				inserted: { prepend: OTHER_PREFIX },
+				label: "after the menu cancelled the armed profile",
+			});
+
+			// Settings: Subagents, Added text and Selection. The project is untrusted
+			// here, so every write lands in the global config.
+			ui.answer("settings", "subagents", "off", undefined);
+			await opened.session.prompt("/push");
+			assert.equal((await globalConfig(harness)).subagents, "off");
+			ui.answer("settings", "display", "added", undefined);
+			await opened.session.prompt("/push");
+			assert.equal((await globalConfig(harness)).display, "added");
+			assert.equal(runtimeOf(opened).display(), "added");
+			ui.answer("settings", "selection", "off", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual((await globalConfig(harness)).selection, { mode: "off" });
+			await assertTurnKeepsCache({
+				harness,
+				provider,
+				session: opened.session,
+				text: FIFTH_INPUT,
+				inserted: { prepend: OTHER_PREFIX },
+				label: "after the menu wrote three settings",
+			});
+
+			// Check and inspect: every row is read-only, and one of them reloads.
+			for (const row of [
+				"status",
+				"why",
+				"preview",
+				"last-added",
+				"config",
+				"validate",
+				"reload",
+			]) {
+				ui.answer("inspect", row, undefined);
+				await opened.session.prompt("/push");
+			}
+			await assertTurnKeepsCache({
+				harness,
+				provider,
+				session: opened.session,
+				text: SIXTH_INPUT,
+				inserted: { prepend: OTHER_PREFIX },
+				label: "after every row of Check and inspect",
 			});
 		});
 	});

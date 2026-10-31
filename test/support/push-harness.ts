@@ -111,24 +111,24 @@ function rootOf(sandbox: Sandbox, scope: "global" | "project"): string {
 }
 
 /**
- * Answers the dialogs a command opens and records which ones were asked for.
+ * Answers the dialogs a command opens and records what each one offered.
  *
  * The terminal picker is built through `ui.custom`, so its factory runs for real
  * here — the title, the items and the terminal width go through the production
  * code — and only the answer is scripted. Nothing is painted and the list's key
- * handling is not exercised: the component is dropped unused.
+ * handling is not exercised: the component is never rendered.
  */
 export class ScriptedUI {
 	private readonly choices: Array<string | undefined>;
 	private readonly inputs: Array<string | undefined>;
 	private readonly editors: Array<string | undefined>;
 	private readonly confirms: Array<boolean | undefined>;
-	/** Dialogs in the order they were opened. */
-	readonly opened: string[] = [];
+	/** Dialogs in the order they were opened, with what each one offered. */
+	readonly dialogs: RecordedDialog[] = [];
 
 	constructor(
 		options: {
-			readonly choices?: readonly string[];
+			readonly choices?: readonly (string | undefined)[];
 			readonly inputs?: readonly string[];
 			readonly editors?: readonly (string | undefined)[];
 			readonly confirms?: readonly (boolean | undefined)[];
@@ -140,25 +140,37 @@ export class ScriptedUI {
 		this.confirms = [...(options.confirms ?? [])];
 	}
 
+	/**
+	 * Answers for the dialogs the next command opens, in order. `undefined`
+	 * dismisses a picker, which is what Esc does.
+	 */
+	answer(...answers: Array<string | undefined>): void {
+		this.choices.push(...answers);
+	}
+
 	wrap(base: ExtensionUIContext): ExtensionUIContext {
 		const next = (queue: Array<string | undefined>): string | undefined =>
 			queue.shift();
 		const nextConfirm = (): boolean | undefined => this.confirms.shift();
 		const overrides = {
 			custom: async (factory: unknown) => {
-				this.opened.push("custom");
-				// The arguments are the ones Pi passes; only the terminal height is
-				// read while the picker is built.
-				(factory as (...args: unknown[]) => unknown)(
-					FAKE_TUI,
-					FAKE_THEME,
-					FAKE_KEYBINDINGS,
-					() => {},
-				);
+				const component = (
+					factory as (...args: unknown[]) => {
+						request?: { title: string; items: readonly { label: string }[] };
+					}
+				)(FAKE_TUI, FAKE_THEME, FAKE_KEYBINDINGS, () => {});
+				// The picker keeps the request it was built from, so the dialog can be
+				// reported without rendering it.
+				const request = component.request;
+				this.dialogs.push({
+					kind: "picker",
+					title: request?.title ?? "",
+					labels: (request?.items ?? []).map((item) => item.label),
+				});
 				return next(this.choices);
 			},
-			select: async (_title: string, options: string[]) => {
-				this.opened.push("select");
+			select: async (title: string, options: string[]) => {
+				this.dialogs.push({ kind: "select", title, labels: [...options] });
 				const choice = next(this.choices);
 				// An answer that is not on the list would silently pass the test.
 				return choice !== undefined && options.includes(choice)
@@ -166,20 +178,28 @@ export class ScriptedUI {
 					: undefined;
 			},
 			input: async (title: string) => {
-				this.opened.push(`input: ${title}`);
+				this.dialogs.push({ kind: "input", title, labels: [] });
 				return next(this.inputs);
 			},
-			confirm: async (title: string, message: string) => {
-				this.opened.push(`confirm: ${title} ${message}`);
+			confirm: async (title: string, _message: string) => {
+				this.dialogs.push({ kind: "confirm", title, labels: [] });
 				return nextConfirm() ?? false;
 			},
 			editor: async (title: string) => {
-				this.opened.push(`editor: ${title}`);
+				this.dialogs.push({ kind: "editor", title, labels: [] });
 				return next(this.editors);
 			},
 		};
 		return { ...base, ...overrides } as unknown as ExtensionUIContext;
 	}
+}
+
+/** One dialog a scripted session opened. */
+export interface RecordedDialog {
+	readonly kind: "picker" | "select" | "input" | "confirm" | "editor";
+	readonly title: string;
+	/** What a picker or a selector offered, in order. */
+	readonly labels: readonly string[];
 }
 
 const FAKE_TUI = { terminal: { rows: 24 } };

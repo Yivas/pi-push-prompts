@@ -354,8 +354,10 @@ describe("push-prompts: /push changes the session state", () => {
 			);
 			assert.equal(opened.runtime?.display(), "added");
 
-			// The menu entry asks for the scope and then for the value.
-			const ui = new ScriptedUI({ choices: ["display", "global", "hidden"] });
+			// The menu walks Settings → Added text → the value, then redraws.
+			const ui = new ScriptedUI({
+				choices: ["settings", "display", "hidden", undefined, undefined],
+			});
 			const menuOpened = await harness.open({
 				sessionManager: SessionManager.create(
 					harness.sandbox.cwd,
@@ -366,7 +368,17 @@ describe("push-prompts: /push changes the session state", () => {
 			});
 			await menuOpened.session.prompt("/push");
 
-			assert.deepEqual(ui.opened, ["custom", "custom", "custom"]);
+			assert.deepEqual(
+				ui.dialogs.map((dialog) => dialog.title),
+				[
+					"Push · Active: global:base (session) · Next: none",
+					"Push · Settings",
+					"Added text in the global config",
+					"Push · Settings",
+					"Push · Active: global:base (session) · Next: none",
+				],
+				"the menu drew the screen, the value, the refreshed screen and the title again",
+			);
 			assert.equal(
 				(await readConfig(harness)).display,
 				"hidden",
@@ -661,7 +673,7 @@ describe("push-prompts: /push writes configuration and profiles", () => {
 				harness.sandbox.sessionDir,
 			);
 			const ui = new ScriptedUI({
-				choices: ["new", "global"],
+				choices: ["profiles", "create", "global", undefined, undefined],
 				inputs: ["fresh"],
 				editors: ["BEFORE THE MESSAGE", "AFTER THE MESSAGE", "EDITED AFTER"],
 			});
@@ -724,7 +736,7 @@ describe("push-prompts: /push turns a name into an id", () => {
 				harness.sandbox.sessionDir,
 			);
 			const ui = new ScriptedUI({
-				choices: ["new", "global"],
+				choices: ["profiles", "create", "global", undefined, undefined],
 				inputs: ["Pensamiento abstracto"],
 				confirms: [true],
 				editors: ["BEFORE THE MESSAGE", "AFTER THE MESSAGE"],
@@ -783,7 +795,7 @@ describe("push-prompts: /push turns a name into an id", () => {
 				harness.sandbox.sessionDir,
 			);
 			const ui = new ScriptedUI({
-				choices: ["new"],
+				choices: ["profiles", "create", undefined, undefined],
 				inputs: ["Pensamiento abstracto"],
 				confirms: [false],
 			});
@@ -811,7 +823,10 @@ describe("push-prompts: /push turns a name into an id", () => {
 				harness.sandbox.cwd,
 				harness.sandbox.sessionDir,
 			);
-			const ui = new ScriptedUI({ choices: ["new"], inputs: ["!!!"] });
+			const ui = new ScriptedUI({
+				choices: ["profiles", "create", undefined],
+				inputs: ["!!!"],
+			});
 			const opened = await harness.open({
 				sessionManager: manager,
 				projectTrusted: false,
@@ -838,7 +853,7 @@ describe("push-prompts: /push turns a name into an id", () => {
 				harness.sandbox.sessionDir,
 			);
 			const ui = new ScriptedUI({
-				choices: ["new", "global"],
+				choices: ["profiles", "create", "global", undefined, undefined],
 				inputs: ["Pensamiento abstracto"],
 				confirms: [true],
 				editors: ["X".repeat(DEFAULT_MAX_PROFILE_BYTES + 1), ""],
@@ -879,7 +894,7 @@ describe("push-prompts: /push turns a name into an id", () => {
 				harness.sandbox.sessionDir,
 			);
 			const ui = new ScriptedUI({
-				choices: ["new", "global"],
+				choices: ["profiles", "create", "global", undefined, undefined],
 				inputs: ["Pensamiento abstracto"],
 				confirms: [true],
 				editors: ["BEFORE THE MESSAGE", "AFTER THE MESSAGE"],
@@ -990,6 +1005,632 @@ describe("push-prompts: /push turns a name into an id", () => {
 				await readFile(blocker, "utf8"),
 				"not a directory",
 				"the blocker was left alone",
+			);
+		});
+	});
+});
+
+/** The project scope of one sandbox, where `.pi/push-prompts` lives. */
+function projectRoot(harness: PushHarness): string {
+	return join(harness.sandbox.cwd, ".pi", "push-prompts");
+}
+
+describe("push-prompts: the /push menu", () => {
+	it("walks the sections and backs out one level at a time", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "base", { prepend: PREFIX });
+			await harness.writeConfig("global", {});
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: SessionManager.create(
+					harness.sandbox.cwd,
+					harness.sandbox.sessionDir,
+				),
+				projectTrusted: false,
+				ui,
+			});
+
+			ui.answer(
+				"profiles",
+				"back",
+				"bindings",
+				"back",
+				"settings",
+				"back",
+				"inspect",
+				"back",
+				"help",
+				undefined,
+			);
+			await opened.session.prompt("/push");
+
+			const titles = ui.dialogs.map((dialog) => dialog.title);
+			assert.deepEqual(titles, [
+				"Push · Active: none · Next: none",
+				"Push · Profiles",
+				"Push · Active: none · Next: none",
+				"Push · Model bindings",
+				"Push · Active: none · Next: none",
+				"Push · Settings",
+				"Push · Active: none · Next: none",
+				"Push · Check and inspect",
+				"Push · Active: none · Next: none",
+				"Push · Active: none · Next: none",
+			], "each Back returns one level and Help returns to the title");
+			assert.deepEqual(ui.dialogs[0]?.labels, [
+				"Use a profile for this session…",
+				"Next message: none…",
+				"Profiles…",
+				"Model bindings…",
+				"Settings…",
+				"Check and inspect…",
+				"Help",
+			]);
+			assert.deepEqual(ui.dialogs[1]?.labels, [
+				"Browse profiles…",
+				"Create a profile…",
+				"Edit a profile…",
+				"Back",
+			]);
+			assert.deepEqual(ui.dialogs[3]?.labels, [
+				"Bind anthropic/claude-sonnet-4-5 to a profile…",
+				"Remove a binding…",
+				"Show all bindings",
+				"Back",
+			], "the bindings section offers no project row while the project is untrusted");
+			assert.deepEqual(ui.dialogs[5]?.labels, [
+				"Save changes to: Global…",
+				"Selection: auto",
+				"Default profile: none",
+				"Subagents: bindings",
+				"Added text: hidden",
+				"Back",
+			]);
+			assert.deepEqual(ui.dialogs[7]?.labels, [
+				"Status",
+				"Why this profile?",
+				"Preview next message",
+				"Last added text",
+				"Show configuration",
+				"Check configuration",
+				"Reload from disk",
+				"Back",
+			]);
+			assert.match(
+				opened.notices.at(-1)?.message ?? "",
+				/\/push use <profile>/,
+				"Help prints the command list",
+			);
+			assert.deepEqual(await readConfig(harness), { version: 1 }, "walking the menu wrote nothing");
+			assert.equal(harness.transport.requests.length, 0, "the menu sent nothing");
+		});
+	});
+
+	it("puts the active profile, its origin and the next message in the title", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "ready", { prepend: PREFIX });
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const ui = new ScriptedUI({ choices: [undefined, undefined] });
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: false,
+				ui,
+			});
+
+			await harness.writeConfig("global", { defaultProfile: "global:ready" });
+			opened.runtime?.reload();
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs[0]?.title,
+				"Push · Active: global:ready (default) · Next: none",
+				"a profile that comes from defaultProfile is named as such",
+			);
+
+			await opened.session.prompt("/push use global:ready");
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs.at(-1)?.title,
+				"Push · Active: global:ready (session) · Next: none",
+				"a pinned profile is named as the session's choice",
+			);
+
+			await opened.session.prompt("/push once global:ready");
+			ui.answer(undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs.at(-1)?.title,
+				"Push · Active: global:ready (session) · Next: global:ready",
+				"the armed profile is named next to the active one",
+			);
+
+			await opened.session.prompt("/push once off");
+			await opened.session.prompt("/push off");
+			ui.answer(undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs.at(-1)?.title,
+				"Push · Active: off · Next: none",
+				"an off session says so instead of naming a profile",
+			);
+
+			await harness.writeProfile("global", "a-very-long-profile-name", {
+				prepend: PREFIX,
+			});
+			await opened.session.prompt("/push reload");
+			await opened.session.prompt("/push use global:a-very-long-profile-name");
+			ui.answer(undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs.at(-1)?.title,
+				"Push · Active: global:a-very-l… (session) · Next: none",
+				"a long reference is shortened, never the state around it",
+			);
+		});
+	});
+
+	it("writes each setting in the config the menu is set to and shows the new value", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "base", { prepend: PREFIX });
+			await harness.writeConfig("global", {});
+			await harness.writeConfig("project", {});
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: SessionManager.create(
+					harness.sandbox.cwd,
+					harness.sandbox.sessionDir,
+				),
+				projectTrusted: true,
+				ui,
+			});
+
+			ui.answer("settings", "subagents", "inherit", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(
+				await readConfig(harness, "project"),
+				{ version: 1, subagents: "inherit" },
+				"a trusted project is where the menu writes by default",
+			);
+			assert.deepEqual(await readConfig(harness), { version: 1 }, "the global config is untouched");
+			assert.deepEqual(
+				await readdir(projectRoot(harness)),
+				["config.json"],
+				"the write left no temporary file behind",
+			);
+
+			ui.answer("settings", "display", "added", undefined);
+			await opened.session.prompt("/push");
+			assert.equal((await readConfig(harness, "project")).display, "added");
+			assert.equal(opened.runtime?.display(), "added");
+
+			ui.answer("settings", "selection", "off", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual((await readConfig(harness, "project")).selection, {
+				mode: "off",
+			});
+
+			ui.answer("settings", "selection", "auto", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual((await readConfig(harness, "project")).selection, {
+				mode: "auto",
+			});
+
+			ui.answer("settings", "default-profile", "global:base", undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				(await readConfig(harness, "project")).defaultProfile,
+				"global:base",
+				"the default profile is stored in the chosen config",
+			);
+
+			const start = ui.dialogs.length;
+			ui.answer("settings", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(ui.dialogs[start + 1]?.labels, [
+				"Save changes to: Project…",
+				"Selection: auto",
+				"Default profile: global:base",
+				"Subagents: inherit",
+				"Added text: added",
+				"Back",
+			], "the screen shows the values that were just written");
+		});
+	});
+
+	it("offers no project config while the project is untrusted", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeConfig("global", {});
+			await harness.writeConfig("project", {});
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: SessionManager.create(
+					harness.sandbox.cwd,
+					harness.sandbox.sessionDir,
+				),
+				projectTrusted: false,
+				ui,
+			});
+
+			const start = ui.dialogs.length;
+			ui.answer("settings", "save-to", undefined, undefined);
+			await opened.session.prompt("/push");
+
+			const dialogs = ui.dialogs.slice(start);
+			assert.equal(dialogs[2]?.title, "Which configuration?");
+			assert.deepEqual(
+				dialogs[2]?.labels,
+				["Global (all projects) (current)"],
+				"only the config the extension may read is offered",
+			);
+			assert.match(
+				dialogs[1]?.labels[0] ?? "",
+				/^Save changes to: Global…$/,
+				"the remembered scope stays global",
+			);
+			assert.deepEqual(
+				await readConfig(harness, "project"),
+				{ version: 1 },
+				"the unread project config was never written",
+			);
+		});
+	});
+
+	it("removes a project override when the global value is chosen", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeConfig("global", { subagents: "off" });
+			await harness.writeConfig("project", { subagents: "inherit" });
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: SessionManager.create(
+					harness.sandbox.cwd,
+					harness.sandbox.sessionDir,
+				),
+				projectTrusted: true,
+				ui,
+			});
+
+			let start = ui.dialogs.length;
+			ui.answer("settings", "subagents", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(ui.dialogs[start + 2]?.labels, [
+				"off",
+				"bindings",
+				"inherit (current)",
+				"Use global value (off)",
+			], "removing the override is a row of its own, not a value");
+
+			start = ui.dialogs.length;
+			ui.answer("settings", "subagents", "use-global-value", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(
+				await readConfig(harness, "project"),
+				{ version: 1 },
+				"the project key was removed, not set to another value",
+			);
+			assert.equal(
+				opened.notices.at(-2)?.message,
+				"subagents removed from the project config.",
+			);
+
+			start = ui.dialogs.length;
+			ui.answer("settings", undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs[start + 1]?.labels[3],
+				"Subagents: off (from global)",
+				"the row names the value that now applies and where it comes from",
+			);
+
+			start = ui.dialogs.length;
+			ui.answer("settings", "subagents", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(
+				ui.dialogs[start + 2]?.labels,
+				["off (current)", "bindings", "inherit"],
+				"with nothing left to remove, the selector offers values only",
+			);
+		});
+	});
+
+	it("keeps profiles named Off or Back apart from the rows of the menu", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "Off", { prepend: PREFIX });
+			await harness.writeProfile("global", "Back", { prepend: SECOND_PREFIX });
+			await harness.writeConfig("global", {});
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: false,
+				ui,
+			});
+
+			let start = ui.dialogs.length;
+			ui.answer("use-session", undefined);
+			await opened.session.prompt("/push");
+			const labels = ui.dialogs[start + 1]?.labels ?? [];
+			assert.deepEqual(
+				labels.slice(0, -2).sort(),
+				["Back (global)", "Off (global)"],
+				"both profiles are offered by name",
+			);
+			assert.deepEqual(labels.slice(-2), [
+				"Automatic (follow model bindings) (current)",
+				"Off for this session",
+			], "the rows of the menu keep their own wording after the profiles");
+
+			ui.answer("use-session", "global:Off");
+			await opened.session.prompt("/push");
+			assert.deepEqual(
+				opened.runtime?.getStatus().selection,
+				{ mode: "manual", profile: "global:Off" },
+				"choosing the profile named Off did not turn the session off",
+			);
+
+			start = ui.dialogs.length;
+			ui.answer("use-session", undefined);
+			await opened.session.prompt("/push");
+			const offered = ui.dialogs[start + 1]?.labels ?? [];
+			assert.ok(
+				offered.includes("Off (global) (current)"),
+				`the chosen profile is marked and the rows are untouched: ${offered.join(" | ")}`,
+			);
+
+			ui.answer("next-message", "global:Back");
+			await opened.session.prompt("/push");
+			assert.equal(opened.runtime?.getStatus().once, "global:Back");
+
+			start = ui.dialogs.length;
+			ui.answer("next-message", "cancel-next");
+			await opened.session.prompt("/push");
+			assert.equal(
+				opened.runtime?.getStatus().once,
+				undefined,
+				"the cancel row still cancels instead of arming a profile",
+			);
+			assert.equal(
+				opened.notices.at(-1)?.message,
+				"The profile armed for the next message was cancelled.",
+			);
+		});
+	});
+
+	it("never runs the first row when a picker is dismissed", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "base", { prepend: PREFIX });
+			await harness.writeConfig("global", {});
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: false,
+				ui,
+			});
+
+			let start = ui.dialogs.length;
+			const notices = opened.notices.length;
+			ui.answer(undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(
+				ui.dialogs.slice(start).map((dialog) => dialog.kind),
+				["picker"],
+				"Esc at the title closed the menu without opening anything",
+			);
+			assert.equal(opened.notices.length, notices, "dismissing the menu says nothing");
+			assert.deepEqual(stateEntries(manager), [], "nothing was stored");
+
+			start = ui.dialogs.length;
+			ui.answer("settings", undefined, undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(
+				ui.dialogs.slice(start).map((dialog) => dialog.title),
+				[
+					"Push · Active: none · Next: none",
+					"Push · Settings",
+					"Push · Active: none · Next: none",
+				],
+				"Esc inside a screen returns to the title, and Esc there closes",
+			);
+			assert.deepEqual(await readConfig(harness), { version: 1 }, "nothing was written");
+		});
+	});
+
+	it("offers the cancel row only while a profile is armed for the next message", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "base", { prepend: PREFIX });
+			await harness.writeProfile("global", "other", { prepend: SECOND_PREFIX });
+			await harness.writeConfig("global", {});
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: false,
+				ui,
+			});
+
+			let start = ui.dialogs.length;
+			ui.answer("next-message", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(ui.dialogs[start + 1]?.labels, [
+				"base (global)",
+				"other (global)",
+			], "nothing armed, nothing to cancel");
+
+			await opened.session.prompt("/push once global:base");
+			start = ui.dialogs.length;
+			ui.answer("next-message", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(ui.dialogs[start + 1]?.labels, [
+				"Cancel: add nothing to the next message",
+				"base (global) (current)",
+				"other (global)",
+			], "an armed profile can be cancelled from the picker");
+		});
+	});
+
+	it("closes the menu with a notice when the session profile changes", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "base", { prepend: PREFIX });
+			await harness.writeConfig("global", {});
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: false,
+				ui,
+			});
+
+			const start = ui.dialogs.length;
+			ui.answer("use-session", "global:base", "settings");
+			await opened.session.prompt("/push");
+
+			assert.equal(
+				ui.dialogs.length - start,
+				2,
+				"the menu closed after the profile changed instead of redrawing",
+			);
+			assert.equal(opened.notices.at(-1)?.message, "Selection: global:base.");
+			assert.deepEqual(branchStateEntries(manager).at(-1)?.selection, {
+				mode: "manual",
+				profile: "global:base",
+			});
+		});
+	});
+
+	it("binds the current model in the config the menu is set to", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "base", { prepend: PREFIX });
+			await harness.writeConfig("global", {});
+			await harness.writeConfig("project", {});
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: SessionManager.create(
+					harness.sandbox.cwd,
+					harness.sandbox.sessionDir,
+				),
+				projectTrusted: true,
+				ui,
+			});
+
+			let start = ui.dialogs.length;
+			ui.answer("bindings", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual(ui.dialogs[start + 1]?.labels, [
+				"Bind anthropic/claude-sonnet-4-5 to a profile…",
+				"Remove a binding…",
+				"Show all bindings",
+				"Inherit global bindings: yes",
+				"Back",
+			]);
+
+			ui.answer("bindings", "bind", "global:base", undefined);
+			await opened.session.prompt("/push");
+			assert.deepEqual((await readConfig(harness, "project")).bindings, [
+				{
+					id: "base-anthropic-claude-sonnet-4-5",
+					profile: "global:base",
+					priority: 0,
+					match: [{ provider: "anthropic", model: "claude-sonnet-4-5" }],
+				},
+			], "the binding names the model of this session and the remembered scope");
+			assert.deepEqual(await readConfig(harness), { version: 1 });
+
+			ui.answer("bindings", "inherit", "false", undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				(await readConfig(harness, "project")).inheritGlobalBindings,
+				false,
+			);
+
+			start = ui.dialogs.length;
+			ui.answer("bindings", undefined);
+			await opened.session.prompt("/push");
+			assert.equal(ui.dialogs[start + 1]?.labels[3], "Inherit global bindings: no");
+
+			start = ui.dialogs.length;
+			ui.answer("bindings", "list", undefined);
+			await opened.session.prompt("/push");
+			assert.match(
+				opened.notices.at(-1)?.message ?? "",
+				/^project:base-anthropic-claude-sonnet-4-5 — global:base/,
+			);
+		});
+	});
+
+	it("browses one profile: shows its text, stores it as the default and uses it", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "base", {
+				prepend: PREFIX,
+				append: SUFFIX,
+			});
+			await harness.writeConfig("global", {});
+			await harness.writeConfig("project", {});
+			const manager = SessionManager.create(
+				harness.sandbox.cwd,
+				harness.sandbox.sessionDir,
+			);
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: manager,
+				projectTrusted: true,
+				ui,
+			});
+
+			let start = ui.dialogs.length;
+			ui.answer("profiles", "browse", "global:base", undefined);
+			await opened.session.prompt("/push");
+			assert.equal(ui.dialogs[start + 3]?.title, "Push · global:base");
+			assert.deepEqual(ui.dialogs[start + 3]?.labels, [
+				"Show text",
+				"Edit",
+				"Use for this session",
+				"Set as default",
+				"Back",
+			]);
+
+			start = ui.dialogs.length;
+			ui.answer("profiles", "browse", "global:base", "show-text", undefined);
+			await opened.session.prompt("/push");
+			const shown = opened.notices.at(-1)?.message ?? "";
+			assert.match(shown, /^Text of global:base:$/m);
+			assert.match(shown, new RegExp(`prepend\\.md \\(${PREFIX.length} bytes\\):`));
+			assert.ok(shown.includes(PREFIX), "the profile text is printed where the person asked for it");
+			assert.ok(shown.includes(SUFFIX));
+
+			start = ui.dialogs.length;
+			ui.answer("profiles", "browse", "global:base", "set-default", undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				(await readConfig(harness, "project")).defaultProfile,
+				"global:base",
+				"the default profile follows the scope the menu is set to",
+			);
+			assert.equal(
+				opened.notices.at(-1)?.message,
+				"defaultProfile set to global:base in the project config.",
+			);
+
+			start = ui.dialogs.length;
+			ui.answer("profiles", "browse", "global:base", "use-session");
+			await opened.session.prompt("/push");
+			assert.equal(ui.dialogs.length - start, 4, "using a profile closes the menu");
+			assert.equal(
+				opened.runtime?.getStatus().selection.profile,
+				"global:base",
 			);
 		});
 	});
