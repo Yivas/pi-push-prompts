@@ -1057,6 +1057,16 @@ describe("push-prompts: the /push menu", () => {
 				"Push · Active: none · Next: none",
 				"Push · Active: none · Next: none",
 			], "each Back returns one level and Help returns to the title");
+			assert.equal(
+				ui.dialogs[0]?.hint,
+				"↑↓ navigate · enter select · esc close",
+				"the title says Esc closes the menu",
+			);
+			assert.equal(
+				ui.dialogs[1]?.hint,
+				"↑↓ navigate · enter select · esc back",
+				"a section says Esc goes back one level",
+			);
 			assert.deepEqual(ui.dialogs[0]?.labels, [
 				"Use a profile for this session…",
 				"Next message: none…",
@@ -1183,6 +1193,136 @@ describe("push-prompts: the /push menu", () => {
 				"Push · Active: global:anoth…ile-name (session) · Next: none",
 				"two long ids ending alike still read as two different profiles",
 			);
+		});
+	});
+
+	it("keeps the session selection in Active while an armed profile waits in Next", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "alpha", { prepend: PREFIX });
+			await harness.writeProfile("global", "beta", { prepend: SECOND_PREFIX });
+			await harness.writeConfig("global", {});
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: SessionManager.create(
+					harness.sandbox.cwd,
+					harness.sandbox.sessionDir,
+				),
+				projectTrusted: false,
+				ui,
+			});
+
+			await opened.session.prompt("/push use global:alpha");
+			await opened.session.prompt("/push once global:beta");
+			let start = ui.dialogs.length;
+			ui.answer(undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs[start]?.title,
+				"Push · Active: global:alpha (session) · Next: global:beta",
+				"Active is the selection the session keeps, Next the one-shot profile",
+			);
+
+			// Looking at the title must not consume or re-resolve what the next send
+			// gets: beta decorates that message exactly once.
+			const betaBody = await sendTurn(
+				opened.session,
+				harness.transport,
+				INPUT,
+			);
+			assert.equal(
+				userTextOf(betaBody),
+				effectiveText(INPUT, { prepend: SECOND_PREFIX }),
+				"the armed profile still decorates the next message",
+			);
+			assert.equal(
+				opened.runtime?.getStatus().once,
+				undefined,
+				"that send consumed the armed profile",
+			);
+
+			start = ui.dialogs.length;
+			ui.answer(undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs[start]?.title,
+				"Push · Active: global:alpha (session) · Next: none",
+				"with nothing armed the title names the selection alone",
+			);
+
+			// Off plus an armed profile: the one-shot still applies, the session does not.
+			await opened.session.prompt("/push once global:beta");
+			await opened.session.prompt("/push off");
+			start = ui.dialogs.length;
+			ui.answer(undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs[start]?.title,
+				"Push · Active: off · Next: global:beta",
+				"an off session says so while one message is still armed",
+			);
+		});
+	});
+
+	it("names the automatic origin in Active while a profile is armed", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "alpha", { prepend: PREFIX });
+			await harness.writeProfile("global", "beta", { prepend: SECOND_PREFIX });
+			await harness.writeConfig("global", { defaultProfile: "global:alpha" });
+			const ui = new ScriptedUI();
+			const opened = await harness.open({
+				sessionManager: SessionManager.create(
+					harness.sandbox.cwd,
+					harness.sandbox.sessionDir,
+				),
+				projectTrusted: false,
+				ui,
+			});
+
+			await opened.session.prompt("/push once global:beta");
+			let start = ui.dialogs.length;
+			ui.answer(undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs[start]?.title,
+				"Push · Active: global:alpha (default) · Next: global:beta",
+				"a default profile is still named by its origin while one message is armed",
+			);
+
+			// A binding wins over the default, and the origin follows it; the armed
+			// profile is untouched and still decorates the next message.
+			await harness.writeConfig("global", {
+				defaultProfile: "global:alpha",
+				bindings: [
+					{
+						id: "alpha",
+						profile: "global:alpha",
+						match: [
+							{ provider: "anthropic", model: "claude-sonnet-4-5" },
+						],
+					},
+				],
+			});
+			await opened.session.prompt("/push reload");
+			start = ui.dialogs.length;
+			ui.answer(undefined);
+			await opened.session.prompt("/push");
+			assert.equal(
+				ui.dialogs[start]?.title,
+				"Push · Active: global:alpha (auto) · Next: global:beta",
+				"a binding names its own origin while one message is armed",
+			);
+
+			const betaBody = await sendTurn(
+				opened.session,
+				harness.transport,
+				SECOND_INPUT,
+			);
+			assert.equal(
+				userTextOf(betaBody),
+				effectiveText(SECOND_INPUT, { prepend: SECOND_PREFIX }),
+				"the armed profile still decorates the next message after the title was read",
+			);
+			assert.equal(opened.runtime?.getStatus().once, undefined);
 		});
 	});
 
@@ -1419,7 +1559,9 @@ describe("push-prompts: the /push menu", () => {
 		await withPushHarness(async (harness) => {
 			await harness.writeProfile("global", "Off", { prepend: PREFIX });
 			await harness.writeProfile("global", "Back", { prepend: SECOND_PREFIX });
-			await harness.writeConfig("global", {});
+			await harness.writeConfig("global", {
+				profiles: { Off: { description: "Synthetic title" } },
+			});
 			const manager = SessionManager.create(
 				harness.sandbox.cwd,
 				harness.sandbox.sessionDir,
@@ -1437,13 +1579,18 @@ describe("push-prompts: the /push menu", () => {
 			const labels = ui.dialogs[start + 1]?.labels ?? [];
 			assert.deepEqual(
 				labels.slice(0, -2).sort(),
-				["Back (global)", "Off (global)"],
-				"both profiles are offered by name",
+				["Back (global)", "Off (global) — Synthetic title"],
+				"both profiles are offered by name, with the description last",
 			);
 			assert.deepEqual(labels.slice(-2), [
 				"Automatic (follow model bindings) (current)",
 				"Off for this session",
 			], "the rows of the menu keep their own wording after the profiles");
+			assert.equal(
+				ui.dialogs[start + 1]?.hint,
+				undefined,
+				"a picker keeps the default cancel hint",
+			);
 
 			ui.answer("use-session", "global:Off");
 			await opened.session.prompt("/push");
@@ -1458,8 +1605,8 @@ describe("push-prompts: the /push menu", () => {
 			await opened.session.prompt("/push");
 			const offered = ui.dialogs[start + 1]?.labels ?? [];
 			assert.ok(
-				offered.includes("Off (global) (current)"),
-				`the chosen profile is marked and the rows are untouched: ${offered.join(" | ")}`,
+				offered.includes("Off (global) (current) — Synthetic title"),
+				`the state marker comes before the description: ${offered.join(" | ")}`,
 			);
 
 			ui.answer("next-message", "global:Back");
@@ -1677,7 +1824,7 @@ describe("push-prompts: the /push menu", () => {
 			assert.equal(ui.dialogs[start + 3]?.title, "Push · global:base");
 			assert.deepEqual(ui.dialogs[start + 3]?.labels, [
 				"Show text",
-				"Edit",
+				"Edit…",
 				"Use for this session",
 				"Set as default in Project",
 				"Back",

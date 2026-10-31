@@ -156,7 +156,11 @@ export class ScriptedUI {
 			custom: async (factory: unknown) => {
 				const component = (
 					factory as (...args: unknown[]) => {
-						request?: { title: string; items: readonly { label: string }[] };
+						request?: {
+							title: string;
+							items: readonly { label: string }[];
+							hint?: string;
+						};
 					}
 				)(FAKE_TUI, FAKE_THEME, FAKE_KEYBINDINGS, () => {});
 				// The picker keeps the request it was built from, so the dialog can be
@@ -166,6 +170,7 @@ export class ScriptedUI {
 					kind: "picker",
 					title: request?.title ?? "",
 					labels: (request?.items ?? []).map((item) => item.label),
+					hint: request?.hint,
 				});
 				return next(this.choices);
 			},
@@ -200,6 +205,8 @@ export interface RecordedDialog {
 	readonly title: string;
 	/** What a picker or a selector offered, in order. */
 	readonly labels: readonly string[];
+	/** What a picker says Esc does, when it says something of its own. */
+	readonly hint?: string;
 }
 
 const FAKE_TUI = { terminal: { rows: 24 } };
