@@ -59,12 +59,22 @@ export function displayWidth(text: string): number {
 	return width;
 }
 
+/**
+ * Cuts one line to the width, ending a clipped line with an ellipsis. The
+ * ellipsis is one of the columns, so a rendered line never outgrows the
+ * terminal Pi aborts on.
+ */
 function truncate(text: string, width: number): string {
+	if (width <= 0) {
+		return "";
+	}
+	const clipped = displayWidth(text) > width;
+	const limit = clipped ? width - 1 : width;
 	let result = "";
 	let used = 0;
 	for (const character of text) {
 		const size = columnWidth(character);
-		if (used + size > width) {
+		if (used + size > limit) {
 			break;
 		}
 		const code = character.codePointAt(0) ?? 0;
@@ -75,7 +85,7 @@ function truncate(text: string, width: number): string {
 		result += safe;
 		used += size;
 	}
-	return result;
+	return clipped ? `${result}…` : result;
 }
 
 export class SearchList {

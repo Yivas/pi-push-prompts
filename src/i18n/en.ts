@@ -96,7 +96,7 @@ export const en = {
 		],
 	},
 	help: [
-		"/push                        menu of the common actions",
+		"/push                        sectioned menu: session profile, next message, profiles, bindings, settings, reports",
 		"/push use <profile>          pin a profile for this session",
 		"/push auto                   resolve from bindings and defaults",
 		"/push off                    stop adding text for this session",
@@ -177,12 +177,13 @@ export const en = {
 		createProfileTitle:
 			"Name the new profile. Its id allows letters, digits, dot, dash and underscore, starts with a letter or digit, and is at most 64 characters.",
 		createProfilePlaceholder: "for example: code review",
-		createProfile: "Create a profile…",
+		createProfileIn: (scope: string) => `Create a profile in ${scope}…`,
 		editProfile: "Edit a profile…",
 		showProfileText: "Show text",
 		editProfilePart: "Edit",
 		useForSession: "Use for this session",
-		setAsDefault: "Set as default",
+		setAsDefaultIn: (scope: string) => `Set as default in ${scope}`,
+		selectionManual: (ref: string) => `manual (${ref})`,
 		profilePickerTitle: "Which profile?",
 		sessionProfileTitle: "Which profile for this session?",
 		nextMessageTitle: "Which profile for the next message?",
@@ -207,7 +208,7 @@ export const en = {
 			inheritGlobalBindings: "Inherit global bindings",
 		} satisfies Record<SettingKey, string>,
 		settingRow: (name: string, value: string, inherited = false) =>
-			`${name}: ${value}${inherited ? " (from global)" : ""}`,
+			`${name}: ${value}${inherited ? " (from global)" : ""}…`,
 		settingValueTitle: (name: string, scope: Scope) =>
 			`${name} in ${scopeName(scope)}`,
 		settingValue: (key: SettingKey, value: string) =>
@@ -285,7 +286,7 @@ export const en = {
 		profilesUnreadable: (directory: string, reason: string) =>
 			`Cannot create a profile: ${directory} could not be read (${reason}). Nothing was written.`,
 		notWritten: (id: string, directory: string) =>
-			`Nothing was written for ${id}. Add --prepend <text> or --append <text> to /push new, or use "Create a profile" in the menu; the files would go in ${directory}.`,
+			`Nothing was written for ${id}. Add --prepend <text> or --append <text> to /push new, or create the profile from the menu; the files would go in ${directory}.`,
 		exists: (ref: string) => `${ref} already exists. Use /push edit.`,
 		saved: (ref: string, part: string) => `Saved ${part} of ${ref}.`,
 		emptyEdit: (ref: string) =>
