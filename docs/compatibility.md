@@ -11,7 +11,7 @@ What the test runs behind [the README](../README.md) actually exercised, and wha
 | TypeScript | 5.9.3 | `devDependencies` |
 | Biome | 2.5.15 | `devDependencies`, lint step of `npm run check` |
 
-The suite holds 247 tests and `npm run check` passes all of them; the runs recorded here used Node.js 24.22.1. The workflow in `.github/workflows/ci.yml` repeats `npm ci --ignore-scripts` and `npm run check` on Node.js 22.19.0 and 24 on every push to `main` and every pull request; Node.js 22 was not part of the local runs recorded here.
+The suite holds 280 tests when `PI_PROMPT_PROFILES_CHECKOUT` points at the reference checkout, and 266 without it, because the coexistence cases register one skip instead of running. `npm run check` passes all of them; the runs recorded here used Node.js 24.22.1. The workflow in `.github/workflows/ci.yml` repeats `npm ci --ignore-scripts` and `npm run check` on Node.js 22.19.0 and 24 on every push to `main` and every pull request; Node.js 22 was not part of the local runs recorded here.
 
 Pi 1.1.0 was the earlier baseline. This page describes the 1.4.0 runs only: the 1.1.0 run was replaced rather than kept, so anything here that the extension promises is evidence for 1.4.0 alone.
 
@@ -42,14 +42,14 @@ No other provider or model was exercised. The synthetic replies are minimal succ
 
 ## Not run
 
-- **Terminal painting.** No test paints a row, redraws the transcript, or renders the searchable picker. Tests call the registered entry renderer and the markdown transformer directly, and the picker component is built with the production code but never painted and never given keys. Arrow keys, enter, escape, search filtering and resize behavior are unverified on screen.
+- **Terminal painting.** No run draws the transcript or a screen inside Pi. The searchable picker is covered in two ways: an independent review probe rendered the real `SearchList` with a synthetic theme at 40, 50, 80 and 120 columns and Pi rejected no line for width, and `test/integration/picker-list.test.ts` drives its key handling on the component itself (Enter on a filter that matches nothing, Backspace, Enter on a match, Esc). Nothing was painted in a real terminal, so colours, contrast, resize behaviour and the full Pi screen remain unverified.
 - **Block content end to end.** The integration runs send text messages. The block shaping that merges into an existing text block or adds one around an image is covered only by the unit tests.
 - **Real provider calls.** No request leaves the machine. Provider latency, real cache accounting, cache hit counters and provider-side retention were not observed.
 - **A real subagent child process.** `pi-subagents` was not run; a test sets `PI_SUBAGENT_CHILD=1`, which is the whole signal the extension reads.
 - **Other platforms.** The runs were on Windows. Linux and macOS were not run locally; the workflow also runs the suite on Ubuntu for every push, and those results are separate from the runs recorded here.
 - **Symlink cases where links cannot be created.** The unit and integration tests that prove a symlink cannot read or write outside the root create real links and skip themselves when the host refuses. Nothing skipped in the Windows runs recorded here; on a host that refuses links those cases stay unverified.
 - **Node.js 22 in a local run.** Allowed by `engines`, exercised by the workflow, never part of the local runs recorded here.
-- **Installation as a Pi package.** `pi install npm:pi-push-prompts@0.1.0` was not executed before the release was tagged, so the installed package path is not covered by a run. The workflow does not install the package either; it clones the repository.
+- **Installation as a Pi package.** Neither `pi install npm:pi-push-prompts@0.1.0` nor `@0.2.0` was executed before its release was tagged, so the installed package path is not covered by a run. The workflow does not install the package either; it clones the repository.
 - **Other Pi versions.** No version other than 1.4.0 was run.
 - **Editors and dialogs in a real terminal.** `ctx.ui.input`, `ctx.ui.editor`, `ctx.ui.select` and `ctx.ui.custom` are answered or stubbed by the harness.
 

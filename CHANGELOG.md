@@ -2,19 +2,20 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows the `0.y.z` convention used by its author: `PATCH` for compatible fixes, `MINOR` for features or breaking changes.
 
-## [Unreleased]
+## [0.2.0] - 2026-11-01
+
+### Added
+
+- The menu's create entry asks for a name and, when that name is not already an id, offers the id derived from it (`Pensamiento abstracto` → `pensamiento-abstracto`) instead of failing. The dialog title states the id rule before anything is typed, and the typed name is stored as the profile's `description` in `config.json` only when it is not already the id. A name no id can be derived from reports the rule in one message.
 
 ### Changed
 
 - `/push` opens a sectioned menu instead of a flat list of nineteen actions. Its title separates the selection the session keeps (`Active`, with its origin) from the profile armed for one message (`Next`) — an armed profile never replaces `Active` — and the sections group the session profile and the next-message profile, the profiles, the model bindings, the settings and the read-only reports. Every setting is changed from `Settings`, which also picks the `config.json` the menu writes to once per session. Rows show `Name: value…`, mark the value in force as `(current)` — naming the profile a stored `manual` selection pins — name an inherited project value as `(from global)` and offer `Use global value (…)` as a separate choice that removes the project override. Rows that write elsewhere say where: `Create a profile in <Global|Project>…` and `Set as default in <Global|Project>`. The menu keeps working from the subcommands' own write paths, and a profile named `Off`, `Back` or `Automatic` is never mistaken for a row of the menu. The `/push <subcommand>` commands and the text fallback without a terminal keep their behaviour.
-
-## [0.1.1] - 2026-11-01
-
-### Changed
-
-- The menu entry "Create a profile" asks for a name and, when that name is not already an id, offers the id derived from it (`Pensamiento abstracto` → `pensamiento-abstracto`) instead of failing. The dialog title states the id rule before anything is typed, and the typed name is stored as the profile's `description` in `config.json` only when it is not already the id. A name no id can be derived from reports the rule in one message.
 - `/push new <id>` stays strict: the directory is created with exactly the id given, and an id that breaks the rule is refused with a message that states the rule and names the id the same name would produce, when one exists.
-- Creating a profile refuses an id that differs only in case from an existing profile in the same scope, in the menu and in `/push new`, because the filesystem may keep one directory for both.
+
+### Fixed
+
+- Creating a profile refuses an id that differs only in case from an existing profile in the same scope, in the menu and in `/push new`, because the filesystem may keep one directory for both; the create also stops instead of writing when the profiles directory cannot be read.
 
 ## [0.1.0] - 2026-10-31
 

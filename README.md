@@ -4,7 +4,7 @@ Adds text from a profile to each new user message in Pi — before it, after it,
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Yivas/pi-push-prompts/blob/main/LICENSE)
 
-Version `0.1.1`. MIT licensed, tested against Pi `1.4.0`.
+Version `0.2.0`. MIT licensed, tested against Pi `1.4.0`.
 
 [Install](#install) · [First use](#first-use) · [Commands](#push) · [Compatibility](https://github.com/Yivas/pi-push-prompts/blob/main/docs/compatibility.md) · [Releases](https://github.com/Yivas/pi-push-prompts/releases) · [Contributing](https://github.com/Yivas/pi-push-prompts/blob/main/CONTRIBUTING.md)
 
@@ -12,9 +12,9 @@ Profiles are plain text files. A session selection, a provider/model binding or 
 
 ## Status
 
-- `0.1.1` is the current release, distributed as the npm package [`pi-push-prompts`](https://www.npmjs.com/package/pi-push-prompts). `0.1.0` was the first public release.
+- `0.2.0` is the current release, distributed as the npm package [`pi-push-prompts`](https://www.npmjs.com/package/pi-push-prompts). `0.1.0` was the first public release.
 - Tested against Pi `1.4.0` (`@earendil-works/pi-coding-agent` 1.4.0) with Pi's built-in provider adapters and a simulated outbound transport, so the runs make no network calls. [docs/compatibility.md](https://github.com/Yivas/pi-push-prompts/blob/main/docs/compatibility.md) lists what those runs cover and what they leave out.
-- `0.1.x` is the only release line. Fixes go there; there is no older line to support.
+- `0.2.x` is the current release line. Fixes go there; `0.1.0` stays as the previous published release and gets no separate fixes.
 
 ## Requirements
 
@@ -24,7 +24,7 @@ Profiles are plain text files. A session selection, a provider/model binding or 
 ## Install
 
 ```bash
-pi install npm:pi-push-prompts@0.1.1
+pi install npm:pi-push-prompts@0.2.0
 ```
 
 Add `--local` (`-l`) to record the package in `.pi/settings.json` for one project instead of your personal settings; Pi reads that file after you grant the project trust.
@@ -32,7 +32,7 @@ Add `--local` (`-l`) to record the package in `.pi/settings.json` for one projec
 To try it for a single run without changing your settings:
 
 ```bash
-pi -e npm:pi-push-prompts@0.1.1
+pi -e npm:pi-push-prompts@0.2.0
 ```
 
 From a checkout, for development:
@@ -188,7 +188,7 @@ Push · Active: <profile> (<session|auto|default>) · Next: <profile|none>
   Help
 ```
 
-Every setting is changed from the menu, and nothing there writes to a message. The title has two halves: `Active` is the selection the session keeps — the profile that applies once nothing else is armed — and `Next` is the profile armed for the next message only, or `none`. Reading the title never arms, cancels or consumes anything. `Active: off` means the session adds nothing while a message may still be armed, and the reason a profile applies follows it: `(session)` for a pinned profile, `(auto)` for a binding, `(default)` for `defaultProfile`. Long references are shortened with `…`, keeping the start and the end of the id; `/push status` and the `Next message` row show the reference in full.
+Every setting is changed from the menu, and nothing there writes to a message. The title has two halves: `Active` is the selection the session keeps — the profile that applies once nothing else is armed — and `Next` is the profile armed for the next message only, or `none`. Reading the title never arms, cancels or consumes anything. `Active: off` means the session adds nothing while a message may still be armed, and the reason a profile applies follows it: `(session)` for a pinned profile, `(auto)` for a binding, `(default)` for `defaultProfile`. Long references are shortened with `…`, keeping the start and the end of the id; `/push status` shows the reference in full.
 
 `Settings` starts with the row `Save changes to`, which picks the `config.json` every write from the menu uses — the project config when the project is trusted, the global one otherwise, and never the project when it is not trusted. It is remembered for the session; settings, bindings, `defaultProfile` and the create row all follow it, and their labels name that config. A value the project does not store but the global config does is shown as `(from global)`, and its selector offers `Use global value (<value>)` to remove the project override; that is a separate choice from picking a value. The current value is marked `(current)`, and a stored `manual` selection names the profile it pins.
 

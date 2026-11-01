@@ -1,6 +1,6 @@
 {
 	"name": "pi-push-prompts",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "Adds profile text to each new user message in Pi, before it, after it, or both.",
 	"license": "MIT",
 	"author": "Yivas (https://github.com/Yivas)",
