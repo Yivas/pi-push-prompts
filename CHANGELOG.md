@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows the `0.y.z` convention used by its author: `PATCH` for compatible fixes, `MINOR` for features or breaking changes.
 
+## [Unreleased]
+
+### Changed
+
+- Global is the initial save destination in the menu, including in trusted projects. An explicit Project choice is still remembered for the session and requires trust. Existing saved settings and resolution precedence are not migrated or changed.
+- Bare command profile ids resolve in Global instead of searching Project first, and `/push unbind` without `--scope` removes global bindings only. Explicit `project:<id>` references and `--scope project` remain available. For `bind`, `--scope` chooses the destination config; for `default`, it also scopes a bare profile id. An explicit reference is preserved when `default` writes to a different scope.
+- The optional added-text transcript row separates the profile metadata from literal `Before:` and `After:` text with theme colours, spacing and a gutter. Long lines wrap within the terminal width without interpreting Markdown or trimming profile whitespace. Terminal controls are neutralized for display only; stored messages and provider requests are unchanged. Hidden mode still draws nothing.
+
 ## [0.2.0] - 2026-11-01
 
 ### Added

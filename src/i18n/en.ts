@@ -60,9 +60,9 @@ export const en = {
 			`push-prompts: ${reason}; the message was sent without the profile.`,
 		configErrors: (lines: string) => `push-prompts:\n${lines}`,
 		entryTitle: (profile: string, mode: string) =>
-			`push-prompts: ${profile} (${mode})`,
-		entryBefore: "added before:",
-		entryAfter: "added after:",
+			`Push · ${profile} (${mode})`,
+		entryBefore: "Before:",
+		entryAfter: "After:",
 	},
 	command: {
 		description:
@@ -117,6 +117,9 @@ export const en = {
 		"/push show [n]               show the original and the effective text of a send",
 		"/push validate               report configuration problems",
 		"/push reload                 re-read configuration and profiles from disk",
+		"Bare profile ids use Global; use project:<id> for a project profile.",
+		"Writes default to Global unless a scope or explicit profile reference says otherwise; unbind defaults to Global only.",
+		"For bind, --scope chooses the config; for default, it also scopes a bare profile id.",
 		"Flags: --push-profile <ref>, --push-auto, --push-off.",
 		"Settings: selection, display, subagents, inheritGlobalBindings.",
 	],
@@ -419,11 +422,8 @@ export const en = {
 			`This binding does not match the current model ${model}.`,
 		removed: (count: number, id: string, scopes: string) =>
 			`Removed ${count} binding(s) named "${id}" from ${scopes}.`,
-		notFound: (id: string) => `No binding named "${id}" was found.`,
 		notFoundInScope: (id: string, scope: Scope) =>
 			`No binding named "${id}" was found in ${scopeName(scope)}.`,
-		partial: (removed: number, scopes: string, id: string) =>
-			`Removed ${removed} from ${scopes} first; run /push unbind ${id} again to finish.`,
 		cancelled: "Cancelled. No binding was written.",
 	},
 	args: {

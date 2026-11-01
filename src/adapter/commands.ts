@@ -239,9 +239,6 @@ function findProfileRef(runtime: Runtime, input: string): ProfileRef | string {
 	if (!isSafeId(input)) {
 		return en.profiles.invalidId(input);
 	}
-	if (runtime.isTrusted() && runtime.catalog("project").profiles.has(input)) {
-		return { scope: "project", id: input };
-	}
 	if (runtime.catalog("global").profiles.has(input)) {
 		return { scope: "global", id: input };
 	}
@@ -488,13 +485,13 @@ function mainTitle(runtime: Runtime): string {
 	return en.menu.title.main(activeText(resolution, profile), nextText(runtime));
 }
 
-/** Project when its config can be read, Global otherwise. */
+/** Global until the user chooses otherwise; a project choice still needs trust. */
 function menuScope(ctx: ExtensionCommandContext, state: MenuState): Scope {
 	const trusted = ctx.isProjectTrusted();
 	// Trust can be withdrawn between two passes through the menu; a remembered
 	// project scope would then name a config this session may not write.
 	if (state.scope === undefined || (state.scope === "project" && !trusted)) {
-		state.scope = trusted ? "project" : "global";
+		state.scope = "global";
 	}
 	return state.scope;
 }
@@ -1468,8 +1465,8 @@ function handleOnce(
 
 /**
  * Writes `defaultProfile` into one config. The profile has to exist where it is
- * named; the scope of the write is a separate decision, which is why the menu
- * can store a global profile as the project default and the command cannot.
+ * named; the scope of the write is separate from an explicit reference, so a
+ * global profile can be stored as the project default.
  */
 function writeDefaultProfile(
 	runtime: Runtime,
@@ -1503,12 +1500,12 @@ function setDefaultProfile(
 ): void {
 	const explicit = parseRef(input);
 	const scope: Scope = scopeFlag ?? explicit?.scope ?? "global";
-	const id = explicit?.id ?? input;
-	if (!isSafeId(id)) {
-		notify(ctx, en.profiles.invalidId(id), "error");
+	const ref = explicit ?? { scope, id: input };
+	if (!isSafeId(ref.id)) {
+		notify(ctx, en.profiles.invalidId(ref.id), "error");
 		return;
 	}
-	writeDefaultProfile(runtime, ctx, { scope, id }, scope);
+	writeDefaultProfile(runtime, ctx, ref, scope);
 }
 
 function handleDefault(
@@ -2202,35 +2199,15 @@ async function handleUnbind(
 	if (rejectInvalidScope(ctx, scopeFlag)) {
 		return;
 	}
-	// Without --scope the binding can live in either config; only the implicit
-	// search skips an untrusted project.
-	const scopes: Scope[] = scopeFlag.scope ? [scopeFlag.scope] : ["project", "global"];
+	const scope = scopeFlag.scope ?? "global";
 	let removed = 0;
-	const removedFrom: Scope[] = [];
 	try {
-		for (const scope of scopes) {
-			if (!scopeFlag.scope && scope === "project" && !ctx.isProjectTrusted()) {
-				continue;
-			}
-			let removedHere = 0;
-			editConfig(runtime, ctx, scope, (config) => {
-				removedHere = removeBindingFrom(config, id);
-				return removedHere > 0;
-			});
-			if (removedHere > 0) {
-				removed += removedHere;
-				removedFrom.push(scope);
-			}
-		}
+		editConfig(runtime, ctx, scope, (config) => {
+			removed = removeBindingFrom(config, id);
+			return removed > 0;
+		});
 	} catch (cause) {
-		// A two-config pass can fail halfway. Report what already changed so a
-		// plain repeat finishes the job instead of leaving a silent half state.
-		const partial =
-			removedFrom.length > 0
-				? ` ${en.bindings.partial(removed, removedFrom.join(" and "), id)}`
-				: "";
-		runtime.reload();
-		notify(ctx, `${messageOf(cause)}${partial}`, "error");
+		notify(ctx, messageOf(cause), "error");
 		return;
 	}
 	try {
@@ -2242,10 +2219,8 @@ async function handleUnbind(
 	notify(
 		ctx,
 		removed > 0
-			? en.bindings.removed(removed, id, removedFrom.join(" and "))
-			: scopeFlag.scope
-				? en.bindings.notFoundInScope(id, scopeFlag.scope)
-				: en.bindings.notFound(id),
+			? en.bindings.removed(removed, id, scope)
+			: en.bindings.notFoundInScope(id, scope),
 	);
 }
 

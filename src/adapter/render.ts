@@ -12,6 +12,11 @@ import type {
 	SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import {
+	stripTerminalSequences,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
+import {
 	APPLIED_ENTRY_TYPE,
 	type DisplayRecord,
 	contentDigest,
@@ -175,6 +180,45 @@ function lookupFor(
 	return createDisplayLookup(records);
 }
 
+/** Terminal controls are data, never styling or cursor commands from a profile. */
+function literalDisplayText(text: string): string {
+	return stripTerminalSequences(text).replace(/\p{Cc}/gu, (character) => {
+		if (character === "\n") {
+			return character;
+		}
+		return character === "\t"
+			? "\\t"
+			: `\\u{${character.codePointAt(0)?.toString(16)}}`;
+	});
+}
+
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Scan each grapheme once; only the current row is revisited at a soft break. */
+function wrapLiteralLine(line: string, width: number): string[] {
+	const lines: string[] = [];
+	let row = "";
+	let columns = 0;
+	let breakAfterSpace = 0;
+	for (const { segment } of GRAPHEME_SEGMENTER.segment(line)) {
+		const segmentColumns = visibleWidth(segment);
+		while (row !== "" && columns + segmentColumns > width) {
+			const end = breakAfterSpace || row.length;
+			lines.push(row.slice(0, end));
+			row = row.slice(end);
+			columns = visibleWidth(row);
+			breakAfterSpace = 0;
+		}
+		if (segment === " " && row !== "") {
+			breakAfterSpace = row.length + 1;
+		}
+		row += segment;
+		columns += segmentColumns;
+	}
+	lines.push(row);
+	return lines;
+}
+
 /**
  * The optional Push row. `hidden` draws nothing at all: Pi skips a renderer
  * that returns undefined, so no empty spacer is left behind.
@@ -182,24 +226,40 @@ function lookupFor(
 export function createAppliedEntryRenderer(
 	display: () => DisplayMode,
 ): EntryRenderer<AppliedEntry> {
-	return (entry) => {
+	return (entry, _options, theme) => {
 		const data = parseAppliedEntry(entry.data);
 		if (!data || display() !== "added") {
 			return undefined;
 		}
-		const lines = [
-			en.extension.entryTitle(data.profile, data.mode),
-		];
-		if (data.insertedPrefix !== "") {
-			lines.push(en.extension.entryBefore);
-			lines.push(data.insertedPrefix.trimEnd());
-		}
-		if (data.insertedSuffix !== "") {
-			lines.push(en.extension.entryAfter);
-			lines.push(data.insertedSuffix.trim());
-		}
 		return {
-			render: () => lines,
+			render: (width) => {
+				// A one-column viewport cannot display a wide grapheme safely.
+				if (width < 2) {
+					return [];
+				}
+				const lines = ["", ...wrapTextWithAnsi(
+					en.extension.entryTitle(data.profile, data.mode), width,
+				).map((line) => theme.fg("muted", line))];
+				const gutter = width >= 6 ? "  │ " : "";
+				const bodyWidth = width - visibleWidth(gutter);
+				const side = (label: string, text: string): void => {
+					lines.push(...wrapTextWithAnsi(label, width).map((line) => theme.fg("muted", line)));
+					for (const line of literalDisplayText(text).split("\n")) {
+						for (const part of wrapLiteralLine(line, bodyWidth)) {
+							lines.push(theme.fg("borderMuted", gutter) + theme.fg("text", part));
+						}
+					}
+				};
+				// Only remove the composition's two-newline separator, never profile whitespace.
+				if (data.insertedPrefix !== "") {
+					side(en.extension.entryBefore, data.insertedPrefix.slice(0, -2));
+				}
+				if (data.insertedSuffix !== "") {
+					side(en.extension.entryAfter, data.insertedSuffix.slice(2));
+				}
+				lines.push("");
+				return lines;
+			},
 			invalidate: () => {},
 		};
 	};

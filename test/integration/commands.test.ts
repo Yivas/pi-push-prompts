@@ -507,6 +507,118 @@ describe("push-prompts: /push reports without changing the transcript", () => {
 });
 
 describe("push-prompts: /push writes configuration and profiles", () => {
+	it("uses global command defaults without migrating saved project settings", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "shared", { prepend: PREFIX });
+			await harness.writeProfile("project", "shared", { prepend: SECOND_PREFIX });
+			await harness.writeProfile("project", "local-only", { prepend: SECOND_PREFIX });
+			const binding = { id: "shared", profile: "global:shared", match: [{ provider: "anthropic" }] };
+			await harness.writeConfig("global", { bindings: [binding] });
+			await harness.writeConfig("project", {
+				selection: { mode: "manual", profile: "project:shared" },
+				display: "hidden",
+				bindings: [{ ...binding, profile: "project:shared" }],
+			});
+			const savedProject = await readConfig(harness, "project");
+			const manager = SessionManager.create(harness.sandbox.cwd, harness.sandbox.sessionDir);
+			const ui = new ScriptedUI({ editors: ["SYNTHETIC-EDITED-GLOBAL", "SYNTHETIC-EDITED-PROJECT"] });
+			const opened = await harness.open({ sessionManager: manager, projectTrusted: true, ui });
+
+			const saved = await sendTurn(opened.session, harness.transport, INPUT);
+			assert.equal(userTextOf(saved), effectiveText(INPUT, { prepend: SECOND_PREFIX }), "saved project selection still wins");
+			await opened.session.prompt("/push use shared");
+			const chosen = await sendTurn(opened.session, harness.transport, SECOND_INPUT);
+			assert.equal(userTextOf(chosen), effectiveText(SECOND_INPUT, { prepend: PREFIX }));
+			await opened.session.prompt("/push once shared");
+			assert.equal(branchStateEntries(manager).at(-1)?.once, "global:shared");
+			await opened.session.prompt("/push once off");
+			await opened.session.prompt("/push use project:shared");
+			assert.equal(opened.runtime?.getStatus().selection.profile, "project:shared");
+			await opened.session.prompt("/push once project:shared");
+			assert.equal(branchStateEntries(manager).at(-1)?.once, "project:shared");
+			await opened.session.prompt("/push once off");
+			for (const command of ["use", "once", "edit", "bind", "default"]) {
+				await opened.session.prompt(`/push ${command} local-only`);
+				assert.match(opened.notices.at(-1)?.message ?? "", /was not found/, `${command} never falls back to project`);
+			}
+			await opened.session.prompt("/push list");
+			assert.match(opened.notices.at(-1)?.message ?? "", /project:local-only/);
+			assert.match(opened.notices.at(-1)?.message ?? "", /global:shared/);
+			await opened.session.prompt("/push edit shared --part prepend");
+			assert.equal(await readFile(join(globalRoot(harness), "profiles/shared/prepend.md"), "utf8"), "SYNTHETIC-EDITED-GLOBAL\n");
+			assert.equal(await readFile(join(projectRoot(harness), "profiles/shared/prepend.md"), "utf8"), SECOND_PREFIX);
+			assert.deepEqual(await readConfig(harness, "project"), savedProject, "implicit commands never migrate saved settings");
+			await opened.session.prompt("/push edit project:shared --part prepend");
+			assert.equal(await readFile(join(projectRoot(harness), "profiles/shared/prepend.md"), "utf8"), "SYNTHETIC-EDITED-PROJECT\n");
+
+			await opened.session.prompt("/push default shared");
+			assert.equal((await readConfig(harness)).defaultProfile, "global:shared");
+			await opened.session.prompt("/push default shared --scope project");
+			assert.equal((await readConfig(harness, "project")).defaultProfile, "project:shared");
+			await opened.session.prompt("/push default project:shared --scope global");
+			assert.equal((await readConfig(harness)).defaultProfile, "project:shared", "an explicit reference is not reinterpreted by the write scope");
+			await opened.session.prompt("/push bind shared --provider anthropic --id bare");
+			await opened.session.prompt("/push bind shared --scope project --provider anthropic --id cross");
+			await opened.session.prompt("/push bind project:shared --provider anthropic --id explicit");
+			const globalBindings = (await readConfig(harness)).bindings as Array<{ id: string; profile: string }>;
+			const projectBindings = (await readConfig(harness, "project")).bindings as Array<{ id: string; profile: string }>;
+			assert.equal(globalBindings.find((entry) => entry.id === "bare")?.profile, "global:shared");
+			assert.equal(projectBindings.find((entry) => entry.id === "cross")?.profile, "global:shared", "bind scope is the destination, not a bare profile lookup scope");
+			assert.equal(projectBindings.find((entry) => entry.id === "explicit")?.profile, "project:shared");
+			await opened.session.prompt("/push unbind shared");
+			assert.equal(((await readConfig(harness)).bindings as Array<{ id: string }>).some((entry) => entry.id === "shared"), false);
+			assert.equal(((await readConfig(harness, "project")).bindings as Array<{ id: string }>).some((entry) => entry.id === "shared"), true);
+			await opened.session.prompt("/push unbind shared");
+			assert.equal(opened.notices.at(-1)?.message, 'No binding named "shared" was found in the global config.');
+			await opened.session.prompt("/push unbind shared --scope project");
+			assert.equal(((await readConfig(harness, "project")).bindings as Array<{ id: string }>).some((entry) => entry.id === "shared"), false);
+
+			const beforeWrites = await readConfig(harness, "project");
+			await opened.session.prompt("/push new fresh --prepend SYNTHETIC-FRESH");
+			assert.equal(await readFile(join(globalRoot(harness), "profiles/fresh/prepend.md"), "utf8"), "SYNTHETIC-FRESH\n");
+			await assert.rejects(readFile(join(projectRoot(harness), "profiles/fresh/prepend.md")));
+			await opened.session.prompt("/push set display added");
+			assert.equal((await readConfig(harness)).display, "added");
+			assert.equal(opened.runtime?.display(), "hidden", "saved project display still wins");
+			await opened.session.prompt("/push unset display");
+			assert.equal((await readConfig(harness)).display, undefined);
+			await opened.session.prompt("/push config set subagents off");
+			assert.equal((await readConfig(harness)).subagents, "off");
+			await opened.session.prompt("/push config unset subagents");
+			assert.equal((await readConfig(harness)).subagents, undefined);
+			await opened.session.prompt("/push config");
+			assert.match(opened.notices.at(-1)?.message ?? "", /^global config/);
+			assert.deepEqual(await readConfig(harness, "project"), beforeWrites);
+		});
+	});
+
+	it("refuses explicit project reads and writes without trust", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeProfile("global", "shared", { prepend: PREFIX });
+			await harness.writeProfile("project", "shared", { prepend: SECOND_PREFIX });
+			await harness.writeConfig("global", {});
+			await harness.writeConfig("project", { display: "added" });
+			const opened = await harness.open({
+				sessionManager: SessionManager.create(harness.sandbox.cwd, harness.sandbox.sessionDir),
+				projectTrusted: false,
+			});
+			for (const command of [
+				"use project:shared", "once project:shared", "edit project:shared",
+				"default project:shared", "bind shared --scope project --provider anthropic",
+				"unbind shared --scope project", "new fresh --scope project --prepend SYNTHETIC-FRESH",
+				"set display hidden --scope project", "unset display --scope project",
+				"config --scope project", "config set display hidden --scope project",
+				"config unset display --scope project",
+			]) {
+				const before = opened.notices.length;
+				await opened.session.prompt(`/push ${command}`);
+				assert.ok(opened.notices.slice(before).some((notice) => /not trusted|was not found/.test(notice.message)), command);
+			}
+			assert.deepEqual(await readConfig(harness, "project"), { version: 1, display: "added" });
+			assert.deepEqual(await readConfig(harness), { version: 1 });
+			assert.equal(harness.transport.requests.length, 0);
+		});
+	});
 	it("binds, unbinds and sets the default profile", async () => {
 		await withPushHarness(async (harness) => {
 			await harness.writeProfile("global", "base", { prepend: PREFIX });
@@ -1016,6 +1128,27 @@ function projectRoot(harness: PushHarness): string {
 }
 
 describe("push-prompts: the /push menu", () => {
+	it("starts trusted menus in Global for settings and profile creation", async () => {
+		await withPushHarness(async (harness) => {
+			await harness.writeConfig("global", {});
+			await harness.writeConfig("project", {});
+			const ui = new ScriptedUI({ inputs: ["fresh"], editors: [PREFIX, ""] });
+			const opened = await harness.open({
+				sessionManager: SessionManager.create(harness.sandbox.cwd, harness.sandbox.sessionDir),
+				projectTrusted: true,
+				ui,
+			});
+			ui.answer("settings", "display", "added", undefined, undefined);
+			await opened.session.prompt("/push");
+			assert.equal((await readConfig(harness)).display, "added");
+			assert.equal(ui.dialogs[1]?.labels[0], "Save changes to: Global…");
+			ui.answer("profiles", "create", undefined, undefined);
+			await opened.session.prompt("/push");
+			assert.equal(await readFile(join(globalRoot(harness), "profiles/fresh/prepend.md"), "utf8"), `${PREFIX}\n`);
+			assert.deepEqual(await readConfig(harness, "project"), { version: 1 });
+			await assert.rejects(readdir(join(projectRoot(harness), "profiles")));
+		});
+	});
 	it("walks the sections and backs out one level at a time", async () => {
 		await withPushHarness(async (harness) => {
 			await harness.writeProfile("global", "base", { prepend: PREFIX });
@@ -1341,12 +1474,20 @@ describe("push-prompts: the /push menu", () => {
 				ui,
 			});
 
+			ui.answer("settings", "save-to", "project", undefined, undefined);
+			await opened.session.prompt("/push");
+			assert.equal(ui.dialogs[1]?.labels[0], "Save changes to: Global…");
+			assert.deepEqual(ui.dialogs[2]?.labels, [
+				"Global (all projects) (current)",
+				"Project (this repository)",
+			]);
+
 			ui.answer("settings", "subagents", "inherit", undefined);
 			await opened.session.prompt("/push");
 			assert.deepEqual(
 				await readConfig(harness, "project"),
 				{ version: 1, subagents: "inherit" },
-				"a trusted project is where the menu writes by default",
+				"the explicitly chosen project is remembered across menu openings",
 			);
 			assert.deepEqual(await readConfig(harness), { version: 1 }, "the global config is untouched");
 			assert.deepEqual(
@@ -1455,6 +1596,8 @@ describe("push-prompts: the /push menu", () => {
 				ui,
 			});
 
+			ui.answer("settings", "save-to", "project", undefined, undefined);
+			await opened.session.prompt("/push");
 			let start = ui.dialogs.length;
 			ui.answer("settings", "subagents", undefined);
 			await opened.session.prompt("/push");
@@ -1754,6 +1897,8 @@ describe("push-prompts: the /push menu", () => {
 				ui,
 			});
 
+			ui.answer("settings", "save-to", "project", undefined, undefined);
+			await opened.session.prompt("/push");
 			let start = ui.dialogs.length;
 			ui.answer("bindings", undefined);
 			await opened.session.prompt("/push");
@@ -1826,7 +1971,7 @@ describe("push-prompts: the /push menu", () => {
 				"Show text",
 				"Edit…",
 				"Use for this session",
-				"Set as default in Project",
+				"Set as default in Global",
 				"Back",
 			]);
 
@@ -1843,13 +1988,13 @@ describe("push-prompts: the /push menu", () => {
 			ui.answer("profiles", "browse", "global:base", "set-default", undefined);
 			await opened.session.prompt("/push");
 			assert.equal(
-				(await readConfig(harness, "project")).defaultProfile,
+				(await readConfig(harness)).defaultProfile,
 				"global:base",
-				"the default profile follows the scope the menu is set to",
+				"the default profile follows the global menu default even with trust",
 			);
 			assert.equal(
 				opened.notices.at(-1)?.message,
-				"defaultProfile set to global:base in the project config.",
+				"defaultProfile set to global:base in the global config.",
 			);
 
 			start = ui.dialogs.length;

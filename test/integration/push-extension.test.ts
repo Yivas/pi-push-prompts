@@ -16,9 +16,11 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import {
 	type ExtensionFactory,
+	initTheme,
 	type SessionEntry,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { APPLIED_ENTRY_TYPE } from "../../src/core/applied.ts";
 import {
 	createOtherDecoratorFixture,
@@ -791,23 +793,116 @@ describe("push-prompts: presentation", () => {
 			const runner = opened.session.extensionRunner;
 			const renderer = runner.getEntryRenderer(APPLIED_ENTRY_TYPE);
 			assert.ok(renderer, "the entry renderer is registered");
+			initTheme("dark", false);
+			const theme = runner.getUIContext().theme;
 			const entry = manager
 				.getEntries()
 				.find((item) => item.type === "custom" && item.customType === APPLIED_ENTRY_TYPE);
 			assert.ok(entry && entry.type === "custom", "the applied entry exists");
 
 			assert.equal(
-				renderer(entry, { expanded: false }, runner.getUIContext().theme),
+				renderer(entry, { expanded: false }, theme),
 				undefined,
 				"hidden draws no row at all",
 			);
 
 			opened.runtime.setDisplay("global", "added");
-			const component = renderer(entry, { expanded: false }, runner.getUIContext().theme);
+			const component = renderer(entry, { expanded: false }, theme);
 			assert.ok(component, "added draws a row");
 			const lines = component.render(80);
-			assert.match(lines[0] ?? "", /push-prompts: global:base \(active\)/);
-			assert.ok(lines.includes(PREFIX), "the added prefix is shown");
+			assert.equal(lines[0], "", "the row is separated from surrounding transcript content");
+			assert.match(stripTerminalSequences(lines[1] ?? ""), /Push · global:base \(active\)/);
+			assert.ok(lines.map(stripTerminalSequences).includes(`  │ ${PREFIX}`), "the added prefix is grouped without Markdown parsing");
+			assert.equal(lines.at(-1), "", "the response cannot touch the last profile line");
+		});
+	});
+
+	it("renders literal added text within 40, 80 and 120 columns, live and reopened", async () => {
+		await withPushHarness(async (harness) => {
+			const prefix = "  **Synthetic literal**  \n\n" +
+				"Long synthetic sentence for wrapping. ".repeat(4) + "\n" +
+				"X".repeat(130) + "\n" + "界".repeat(20000) + "\n" +
+				"界🙂e\u0301👩‍💻🇺🇳 ".repeat(30) + "\n  ";
+			const suffix = "  Synthetic after.  \n\n";
+			const id = `synthetic-${"long-".repeat(10)}row`;
+			await harness.writeProfile("global", id, { prepend: prefix, append: suffix });
+			await harness.writeConfig("global", { selection: { mode: "manual", profile: `global:${id}` }, display: "added" });
+			const manager = SessionManager.create(harness.sandbox.cwd, harness.sandbox.sessionDir);
+			const opened = await harness.open({ sessionManager: manager, projectTrusted: false });
+			await sendTurn(opened.session, harness.transport, INPUT);
+			const file = manager.getSessionFile();
+			assert.ok(file);
+			const stored = JSON.stringify(manager.getEntries());
+			const frames = new Map<number, string[]>();
+			for (const session of [opened, await harness.open({ sessionManager: SessionManager.open(file), projectTrusted: false })]) {
+				const runner = session.session.extensionRunner;
+				const renderer = runner.getEntryRenderer(APPLIED_ENTRY_TYPE);
+				assert.ok(renderer);
+				initTheme("dark", false);
+				const theme = runner.getUIContext().theme;
+				const entry = session.session.sessionManager.getEntries().find((item) => item.type === "custom" && item.customType === APPLIED_ENTRY_TYPE);
+				assert.ok(entry && entry.type === "custom");
+				const component = renderer(entry, { expanded: false }, theme);
+				assert.ok(component);
+				for (const width of [40, 80, 120]) {
+					component.invalidate();
+					const rendered = component.render(width);
+					const lines = rendered.map(stripTerminalSequences);
+					assert.ok(rendered.every((line) => visibleWidth(line) <= width), `every line fits ${width} columns`);
+					assert.ok(lines.every((line) => !line.includes("\n")), "one physical line per rendered row");
+					assert.equal(lines[0], "");
+					assert.equal(lines.at(-1), "");
+					const before = lines.indexOf("Before:");
+					const after = lines.indexOf("After:");
+					assert.ok(before > 0 && after > before);
+					assert.equal(lines[before + 1], "  │   **Synthetic literal**  ", "Markdown and spaces remain literal");
+					assert.equal(lines[before + 2], "  │ ", "an empty logical line keeps its gutter");
+					assert.equal(lines.slice(before + 1, after).map((line) => line.slice(4)).join(""), prefix.replaceAll("\n", ""), "wrapping loses no profile characters or spaces");
+					assert.deepEqual(lines.slice(after + 1, -1), ["  │   Synthetic after.  ", "  │ "], "only the loader's final newline and composition separator are absent");
+					if (frames.has(width)) {
+						assert.deepEqual(lines, frames.get(width), "reopen paints the same added row");
+					} else {
+						frames.set(width, lines);
+					}
+				}
+				assert.deepEqual(component.render(0), []);
+				assert.deepEqual(component.render(1), []);
+				for (const width of [2, 3, 4, 5, 6]) {
+					assert.ok(component.render(width).every((line) => visibleWidth(line) <= width), `tiny ${width}-column viewport terminates and fits`);
+				}
+			}
+			assert.equal(JSON.stringify(manager.getEntries()), stored, "rendering never modifies the session");
+			assert.equal(harness.transport.requests.length, 1, "rendering makes no provider call");
+		});
+	});
+
+	it("neutralizes terminal controls only in the added row", async () => {
+		await withPushHarness(async (harness) => {
+			const prefix = "**literal**\t\u001b[2J\u001b]8;;https://invalid.example\u0007link\u001b]8;;\u0007\r\b\u009b";
+			await harness.writeProfile("global", "controls", { prepend: prefix });
+			await harness.writeConfig("global", { display: "added" });
+			const manager = SessionManager.create(harness.sandbox.cwd, harness.sandbox.sessionDir);
+			const opened = await harness.open({ sessionManager: manager, projectTrusted: false });
+			await opened.session.prompt("/push once controls");
+			await sendTurn(opened.session, harness.transport, INPUT);
+			const runner = opened.session.extensionRunner;
+			const renderer = runner.getEntryRenderer(APPLIED_ENTRY_TYPE);
+			assert.ok(renderer);
+			initTheme("dark", false);
+			const theme = runner.getUIContext().theme;
+			const entry = manager.getEntries().find((item) => item.type === "custom" && item.customType === APPLIED_ENTRY_TYPE);
+			assert.ok(entry && entry.type === "custom");
+			const component = renderer(entry, { expanded: false }, theme);
+			assert.ok(component);
+			const lines = component.render(80);
+			assert.deepEqual(lines.map(stripTerminalSequences), [
+				"", "Push · global:controls (once)", "Before:",
+				"  │ **literal**\\tlink\\u{d}\\u{8}\\u{9b}", "",
+			]);
+			assert.ok(lines.every((line) => !line.includes("\u001b[2J") && !line.includes("\u001b]") && !line.includes("\u009b")), "profile control sequences cannot reach the terminal");
+			assert.equal(userMessages(manager)[0]?.text, effectiveText(INPUT, { prepend: prefix }), "the stored and sent text is not sanitized");
+			await opened.session.prompt("/push config set display hidden");
+			assert.equal(renderer(entry, { expanded: false }, theme), undefined, "hidden still draws nothing after a visible render");
 		});
 	});
 
