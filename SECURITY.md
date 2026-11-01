@@ -2,8 +2,8 @@
 
 | Surface | Support |
 | --- | --- |
-| `0.2.x`, distributed as the npm package `pi-push-prompts` | Fixes in the latest `0.2.x` release |
-| Older versions | None; upgrade to the current `0.2.x` release. `0.1.0` was the first release |
+| `0.3.x`, distributed as the npm package `pi-push-prompts` | Fixes in the latest `0.3.x` release |
+| Older versions | None; upgrade to the current `0.3.x` release. `0.1.0` was the first release |
 | Pi versions | 1.4.0 only, see [compatibility](https://github.com/Yivas/pi-push-prompts/blob/main/docs/compatibility.md) |
 
 ## Scope

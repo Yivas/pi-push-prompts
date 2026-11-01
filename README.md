@@ -4,7 +4,7 @@ Adds text from a profile to each new user message in Pi — before it, after it,
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Yivas/pi-push-prompts/blob/main/LICENSE)
 
-Version `0.2.0`. MIT licensed, tested against Pi `1.4.0`.
+Version `0.3.0`. MIT licensed, tested against Pi `1.4.0`.
 
 [Install](#install) · [First use](#first-use) · [Commands](#push) · [Compatibility](https://github.com/Yivas/pi-push-prompts/blob/main/docs/compatibility.md) · [Releases](https://github.com/Yivas/pi-push-prompts/releases) · [Contributing](https://github.com/Yivas/pi-push-prompts/blob/main/CONTRIBUTING.md)
 
@@ -12,9 +12,9 @@ Profiles are plain text files. A session selection, a provider/model binding or 
 
 ## Status
 
-- `0.2.0` is the current release, distributed as the npm package [`pi-push-prompts`](https://www.npmjs.com/package/pi-push-prompts). `0.1.0` was the first public release.
+- `0.3.0` is the current release, distributed as the npm package [`pi-push-prompts`](https://www.npmjs.com/package/pi-push-prompts).
 - Tested against Pi `1.4.0` (`@earendil-works/pi-coding-agent` 1.4.0) with Pi's built-in provider adapters and a simulated outbound transport, so the runs make no network calls. [docs/compatibility.md](https://github.com/Yivas/pi-push-prompts/blob/main/docs/compatibility.md) lists what those runs cover and what they leave out.
-- `0.2.x` is the current release line. Fixes go there; `0.1.0` stays as the previous published release and gets no separate fixes.
+- `0.3.x` is the current release line. Fixes go there; older releases receive no separate fixes.
 
 ## Requirements
 
@@ -24,7 +24,7 @@ Profiles are plain text files. A session selection, a provider/model binding or 
 ## Install
 
 ```bash
-pi install npm:pi-push-prompts@0.2.0
+pi install npm:pi-push-prompts@0.3.0
 ```
 
 Add `--local` (`-l`) to record the package in `.pi/settings.json` for one project instead of your personal settings; Pi reads that file after you grant the project trust.
@@ -32,7 +32,7 @@ Add `--local` (`-l`) to record the package in `.pi/settings.json` for one projec
 To try it for a single run without changing your settings:
 
 ```bash
-pi -e npm:pi-push-prompts@0.2.0
+pi -e npm:pi-push-prompts@0.3.0
 ```
 
 From a checkout, for development:
@@ -97,8 +97,8 @@ The insert goes inside the new message, not around the history.
 - A profile needs text in `prepend.md`, in `append.md`, or in both; a directory with neither is skipped and reported.
 - A profile is also skipped, with a diagnostic, when its directory name is not a safe id, when either file is larger than 64 KiB, or when a path resolves outside the root through a symlink.
 - Inheritance: `profiles.<id>.extends` in `config.json` names one parent, and a bare id in that field resolves inside the same scope. Text is joined parent first and the most specific profile last, with a blank line between layers. A chain is limited to 8 profiles and 256 KiB of text; a missing parent, a cycle or either limit discards the whole profile rather than dropping a layer.
-- Ids match `[A-Za-z0-9][A-Za-z0-9._-]*`, up to 64 characters, and cannot contain `..`. A reference is `global:<id>`, `project:<id>` or a bare id; inside `config.json` a bare id means the global scope. In `0.2.0`, commands look for bare ids in the trusted project's profiles first, except `/push default`, which uses Global unless given `--scope project`.
-- **Unreleased:** bare command ids resolve in Global, with no fallback to Project. Use `project:<id>` to name a project profile. `/push default <id> --scope project` still looks for that bare id in Project; `/push bind <id> --scope project` looks in Global and saves the binding in the project config. An explicit profile reference stays explicit even when `--scope` chooses a different destination config. Existing saved selections, bindings, defaults and their resolution order are unchanged; no settings are migrated.
+- Ids match `[A-Za-z0-9][A-Za-z0-9._-]*`, up to 64 characters, and cannot contain `..`. A reference is `global:<id>`, `project:<id>` or a bare id; inside `config.json` a bare id means the global scope.
+- Bare command ids resolve in Global, with no fallback to Project. Use `project:<id>` to name a project profile. `/push default <id> --scope project` still looks for that bare id in Project; `/push bind <id> --scope project` looks in Global and saves the binding in the project config. An explicit profile reference stays explicit even when `--scope` chooses a different destination config. Existing saved selections, bindings, defaults and their resolution order are unchanged; no settings are migrated.
 
 An untrusted project contributes nothing: its `config.json` and its profiles are neither read nor written. Picking up a project configuration requires Pi's trust decision for that directory.
 
@@ -191,11 +191,11 @@ Push · Active: <profile> (<session|auto|default>) · Next: <profile|none>
 
 Every setting is changed from the menu, and nothing there writes to a message. The title has two halves: `Active` is the selection the session keeps — the profile that applies once nothing else is armed — and `Next` is the profile armed for the next message only, or `none`. Reading the title never arms, cancels or consumes anything. `Active: off` means the session adds nothing while a message may still be armed, and the reason a profile applies follows it: `(session)` for a pinned profile, `(auto)` for a binding, `(default)` for `defaultProfile`. Long references are shortened with `…`, keeping the start and the end of the id; `/push status` shows the reference in full.
 
-`Settings` starts with the row `Save changes to`, which picks the `config.json` every write from the menu uses. In `0.2.0`, it starts with Project when the project is trusted and Global otherwise; Project is never available without trust. It is remembered for the session; settings, bindings, `defaultProfile` and the create row all follow it, and their labels name that config. **Unreleased:** the menu starts in Global even when the project is trusted; choosing Project explicitly still requires trust and is remembered for the session. A value the project does not store but the global config does is shown as `(from global)`, and its selector offers `Use global value (<value>)` to remove the project override; that is a separate choice from picking a value. The current value is marked `(current)`, and a stored `manual` selection names the profile it pins.
+`Settings` starts with the row `Save changes to`, which picks the `config.json` every write from the menu uses. It starts in Global even when the project is trusted; choosing Project explicitly requires trust and is remembered for the session. Settings, bindings, `defaultProfile` and the create row all follow it, and their labels name that config. A value the project does not store but the global config does is shown as `(from global)`, and its selector offers `Use global value (<value>)` to remove the project override; that is a separate choice from picking a value. The current value is marked `(current)`, and a stored `manual` selection names the profile it pins.
 
 Esc and `Back` return one level and Esc at the title closes the menu. A setting change returns to `Settings` with the new value; choosing a session profile or arming one for the next message closes the menu and reports it. A profile is shown as `<id> (<scope>)`, so a profile named `Off`, `Back` or `Automatic` never reads like one of the menu's own rows.
 
-`--scope` takes `global` or `project`. `/push new`, `/push set`, `/push unset` and `/push config` default to the global config; `/push bind` defaults to the scope of the profile it names and `/push default` to the scope of an explicit reference, then to global. In `0.2.0`, `/push unbind` without `--scope` searches both configs. **Unreleased:** it removes global bindings only; pass `--scope project` to remove project bindings. Commands do not inherit the menu's remembered scope. Writing the project config is refused when the project is not trusted.
+`--scope` takes `global` or `project`. `/push new`, `/push set`, `/push unset` and `/push config` default to the global config; `/push bind` defaults to the scope of the profile it names and `/push default` to the scope of an explicit reference, then to global. `/push unbind` without `--scope` removes global bindings only; pass `--scope project` to remove project bindings. Commands do not inherit the menu's remembered scope. Writing the project config is refused when the project is not trusted.
 
 Menus, profile editing and binding through the model picker need the interactive UI. Without it, the commands that would open a dialog report what to pass instead, and the report commands still print.
 
@@ -205,7 +205,7 @@ The stored message always contains the inserted text. What you see is a renderin
 
 - The native user row paints the text the message was sent with. A markdown transformer maps the stored text back to the original recorded for that message, in the live session and after reopening. When the mapping cannot be proven — the same text is also another message's original, or the message was changed after decoration — the row paints the stored text unchanged instead of guessing.
 - `display: hidden` (the default) draws nothing extra.
-- `display: added` draws one extra row above the message. In `0.2.0` it reads `push-prompts: <profile> (active|once)`, then `added before:` and `added after:` with the inserted text. **Unreleased:** a separated `Push · <profile> (active|once)` row uses subdued theme colours, `Before:` and `After:` labels and a gutter for literal text, wrapped to the available columns. It does not interpret Markdown. Only the composition's blank-line separators are omitted; profile spaces and blank lines are kept. Terminal control sequences are stripped for display and remaining control characters, including tabs, are shown as escapes; the stored and sent text is unchanged. The renderer reads `display` when it paints, so changing the setting also affects rows for earlier sends.
+- `display: added` draws one separated row above the message: `Push · <profile> (active|once)`, with subdued theme colours, `Before:` and `After:` labels and a gutter for literal text, wrapped to the available columns. It does not interpret Markdown. Only the composition's blank-line separators are omitted; profile spaces and blank lines are kept. Terminal control sequences are stripped for display and remaining control characters, including tabs, are shown as escapes; the stored and sent text is unchanged. The renderer reads `display` when it paints, so changing the setting also affects rows for earlier sends.
 - `/push show [n]` prints the original and the effective text of one decorated send on the active branch, counting back from the most recent. If another writer changed that message after Push recorded it, the command says so and prints only the effective text.
 
 ## Cache guarantee

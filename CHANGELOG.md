@@ -4,11 +4,19 @@ All notable changes to this project are documented in this file. The format is b
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-01
+
 ### Changed
 
 - Global is the initial save destination in the menu, including in trusted projects. An explicit Project choice is still remembered for the session and requires trust. Existing saved settings and resolution precedence are not migrated or changed.
 - Bare command profile ids resolve in Global instead of searching Project first, and `/push unbind` without `--scope` removes global bindings only. Explicit `project:<id>` references and `--scope project` remain available. For `bind`, `--scope` chooses the destination config; for `default`, it also scopes a bare profile id. An explicit reference is preserved when `default` writes to a different scope.
 - The optional added-text transcript row separates the profile metadata from literal `Before:` and `After:` text with theme colours, spacing and a gutter. Long lines wrap within the terminal width without interpreting Markdown or trimming profile whitespace. Terminal controls are neutralized for display only; stored messages and provider requests are unchanged. Hidden mode still draws nothing.
+
+### Upgrade from 0.2.0
+
+- Commands no longer look for bare profile ids in Project first. Use `project:<id>` when you mean a project profile; an id without a prefix now means Global, with no fallback. In the menu, choose `Settings` → `Save changes to: Project` when you want project writes.
+- `/push unbind <id>` now affects Global only. Pass `--scope project` to remove a project binding.
+- Existing config files, profiles, saved selections and resolution precedence are unchanged. Nothing is moved or migrated. Explicit references remain explicit, and project access still requires trust.
 
 ## [0.2.0] - 2026-11-01
 
